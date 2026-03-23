@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# OS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+
+# Session / intermediate files
+session/
+*.mp4
+*.webm
+*.mp3
+*.srt
+
+# Lock files
+uv.lock

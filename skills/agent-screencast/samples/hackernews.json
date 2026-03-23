@@ -1,0 +1,62 @@
+{
+  "title": "Hacker News walkthrough",
+  "base_url": "https://news.ycombinator.com",
+  "voice": "en-US-GuyNeural",
+  "segments": [
+    {
+      "id": "homepage",
+      "narration": "This is Hacker News, the tech community's go-to source for the latest in startups, programming, and science. Let's take a look at today's top stories.",
+      "actions": [
+        { "cmd": "open", "arg": "https://news.ycombinator.com" },
+        { "cmd": "wait", "arg": "--load networkidle" },
+        { "cmd": "wait", "arg": "500" }
+      ],
+      "caption_overlay": "Hacker News \u2014 Top Stories"
+    },
+    {
+      "id": "scroll-stories",
+      "narration": "The front page ranks stories by a combination of upvotes and recency. Each link shows the domain, points, submitter, and comment count. Let's scroll through a few.",
+      "actions": [
+        { "cmd": "scroll", "arg": "down 300" },
+        { "cmd": "wait", "arg": "800" },
+        { "cmd": "scroll", "arg": "down 300" },
+        { "cmd": "wait", "arg": "800" },
+        { "cmd": "scroll", "arg": "down 200" }
+      ],
+      "caption_overlay": null
+    },
+    {
+      "id": "open-comments",
+      "narration": "Clicking the comments link on any story takes you to the discussion thread. Hacker News is known for its thoughtful, technical comment threads.",
+      "actions": [
+        { "cmd": "scroll", "arg": "up 800" },
+        { "cmd": "wait", "arg": "500" },
+        { "cmd": "eval", "arg": "document.querySelector('.subtext a[href*=\"item\"]').click()" },
+        { "cmd": "wait", "arg": "--load networkidle" },
+        { "cmd": "wait", "arg": "500" }
+      ],
+      "caption_overlay": "Discussion Thread"
+    },
+    {
+      "id": "scroll-comments",
+      "narration": "Comments are threaded with indentation showing reply depth. The community self-moderates through flagging and upvotes, keeping discussions on topic.",
+      "actions": [
+        { "cmd": "scroll", "arg": "down 400" },
+        { "cmd": "wait", "arg": "1000" },
+        { "cmd": "scroll", "arg": "down 300" },
+        { "cmd": "wait", "arg": "800" }
+      ],
+      "caption_overlay": null
+    },
+    {
+      "id": "outro",
+      "narration": "That's a quick tour of Hacker News. Simple design, rich discussions, and a curated feed of what matters in tech.",
+      "actions": [
+        { "cmd": "open", "arg": "https://news.ycombinator.com" },
+        { "cmd": "wait", "arg": "--load networkidle" },
+        { "cmd": "wait", "arg": "500" }
+      ],
+      "caption_overlay": "news.ycombinator.com"
+    }
+  ]
+}
