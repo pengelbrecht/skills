@@ -25,20 +25,13 @@ and ffmpeg for assembly. No API keys required.
 Before starting, verify the tools are available:
 
 ```bash
+which uv            || echo "MISSING: curl -LsSf https://astral.sh/uv/install.sh | sh"
 which agent-browser || echo "MISSING: npm i -g agent-browser && agent-browser install"
 which ffmpeg        || echo "MISSING: brew install ffmpeg"
-# edge-tts is bundled with the agent-screencast package
 ```
 
-Install the agent-screencast Python package (one-time setup):
-
-```bash
-cd <repo-root>/skills/agent-screencast
-uv sync
-```
-
-Where `<repo-root>` is the directory containing the skills repo. You can find the
-installed location by checking the skill's source path.
+No installation step is needed — `uv run` handles Python dependencies automatically
+via inline script metadata.
 
 ## How It Works
 
@@ -163,12 +156,13 @@ Run `uv run edge-tts --list-voices` for the full list. Good defaults:
 
 ### Step 3: Run the pipeline
 
-Save the script JSON, then run from the agent-screencast directory:
+Save the script JSON, then run the self-contained script (uv resolves deps automatically):
 
 ```bash
-cd <skill-install-path>/skills/agent-screencast
-uv run agent-screencast <path-to-script.json> -o output.mp4 --session-dir ./session
+uv run <skill-dir>/agent-screencast.py <path-to-script.json> -o output.mp4 --session-dir ./session
 ```
+
+Where `<skill-dir>` is the path to this skill's directory (the folder containing this SKILL.md).
 
 This executes all three phases automatically:
 1. **Narration** — generates MP3 + SRT subtitles per segment via edge-tts
@@ -192,12 +186,12 @@ This executes all three phases automatically:
 
 If the recording looks wrong but audio is fine:
 ```bash
-uv run agent-screencast script.json -o output.mp4 --session-dir ./session --skip-narration
+uv run <skill-dir>/agent-screencast.py script.json -o output.mp4 --session-dir ./session --skip-narration
 ```
 
 If you just need to re-assemble (e.g. after tweaking subtitles):
 ```bash
-uv run agent-screencast script.json -o output.mp4 --session-dir ./session --skip-narration --skip-recording
+uv run <skill-dir>/agent-screencast.py script.json -o output.mp4 --session-dir ./session --skip-narration --skip-recording
 ```
 
 ### Step 4: Review and iterate
@@ -231,8 +225,7 @@ agent-browser snapshot -i
 # 2. Write script based on what you saw (save as demo-script.json)
 
 # 3. Run pipeline
-cd <skill-install-path>/skills/agent-screencast
-uv run agent-screencast /path/to/demo-script.json -o feature-demo.mp4 --session-dir ./session
+uv run <skill-dir>/agent-screencast.py /path/to/demo-script.json -o feature-demo.mp4 --session-dir ./session
 
 # 4. Output: feature-demo.mp4 with narration + subtitles
 ```
