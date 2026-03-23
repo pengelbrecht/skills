@@ -19,6 +19,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -234,6 +235,20 @@ def _remove_overlay(base_args: list[str]) -> None:
     _run_ab(base_args, "eval", "document.getElementById('demo-overlay')?.remove()")
 
 
+@dataclass
+class TimingEntry:
+    """Records when a segment actually started/ended in the video timeline."""
+
+    segment_id: str
+    video_start_ms: int
+    video_end_ms: int
+    audio_duration_ms: int
+
+
+# Minimum wait after actions complete so the viewer can see the final state
+_MIN_HOLD_MS = 500
+
+
 def record_demo(
     script: Script,
     output_path: str,
@@ -241,7 +256,8 @@ def record_demo(
     headed: bool = False,
     cdp_port: int | None = None,
     auto_connect: bool = False,
-) -> None:
+) -> list[TimingEntry]:
+    """Record the browser session. Returns a timing manifest for assembly."""
     base_args: list[str] = []
     if headed:
         base_args.append("--headed")
@@ -262,8 +278,15 @@ def record_demo(
     print(f"  Starting recording -> {output_path}")
     _run_ab(base_args, "record", "start", output_path)
 
+    rec_start = time.monotonic()
+    manifest: list[TimingEntry] = []
+
     for segment in script.segments:
-        print(f"  Recording segment: {segment.id} ({segment.duration_ms}ms)")
+        audio_dur = segment.duration_ms or 0
+        print(f"  Recording segment: {segment.id} (audio {audio_dur}ms)")
+
+        seg_start = time.monotonic()
+        video_start_ms = int((seg_start - rec_start) * 1000)
 
         if segment.caption_overlay:
             _inject_overlay(base_args, segment.caption_overlay)
@@ -277,14 +300,26 @@ def record_demo(
             else:
                 _run_ab(base_args, action.cmd, action.arg)
 
-        if segment.duration_ms:
-            _run_ab(base_args, "wait", str(segment.duration_ms))
+        # Wait for the remaining narration time, minus what actions already consumed
+        elapsed_ms = int((time.monotonic() - seg_start) * 1000)
+        remaining = max(_MIN_HOLD_MS, audio_dur - elapsed_ms)
+        print(f"    Actions took {elapsed_ms}ms, holding {remaining}ms")
+        _run_ab(base_args, "wait", str(remaining))
 
         if segment.caption_overlay:
             _remove_overlay(base_args)
 
+        video_end_ms = int((time.monotonic() - rec_start) * 1000)
+        manifest.append(TimingEntry(
+            segment_id=segment.id,
+            video_start_ms=video_start_ms,
+            video_end_ms=video_end_ms,
+            audio_duration_ms=audio_dur,
+        ))
+
     _run_ab(base_args, "record", "stop")
     print(f"  Recording saved to {output_path}")
+    return manifest
 
 
 # ---------------------------------------------------------------------------
@@ -305,40 +340,74 @@ def _parse_srt_time(t: str) -> int:
     return int(parts[0]) * 3600000 + int(parts[1]) * 60000 + int(parts[2]) * 1000 + int(parts[3])
 
 
-def concatenate_audio(script: Script, output_dir: Path) -> Path:
-    list_file = output_dir / "audio-list.txt"
-    with open(list_file, "w") as f:
-        for seg in script.segments:
-            if seg.audio_path:
-                f.write(f"file '{Path(seg.audio_path).resolve()}'\n")
+def _build_mixed_audio(
+    script: Script, manifest: list[TimingEntry], output_dir: Path
+) -> Path:
+    """Place each segment's audio at its real video-timeline offset.
 
-    full_audio = output_dir / "narration-full.mp3"
+    Uses ffmpeg adelay + amix so each clip lands at the moment its segment
+    actually started in the recording, rather than assuming sequential concat
+    lines up.
+    """
+    inputs: list[str] = []
+    filter_parts: list[str] = []
+    stream_labels: list[str] = []
+
+    seg_by_id = {s.id: s for s in script.segments}
+    input_idx = 0
+
+    for entry in manifest:
+        seg = seg_by_id.get(entry.segment_id)
+        if not seg or not seg.audio_path:
+            continue
+
+        inputs.extend(["-i", seg.audio_path])
+        delay_ms = entry.video_start_ms
+        label = f"a{input_idx}"
+        # adelay: delay in ms, pad to keep the stream alive after the clip ends
+        filter_parts.append(f"[{input_idx}:a]adelay={delay_ms}|{delay_ms}[{label}]")
+        stream_labels.append(f"[{label}]")
+        input_idx += 1
+
+    if not stream_labels:
+        raise RuntimeError("No audio segments to mix")
+
+    # amix with dropout_transition=0 prevents volume ducking across segments
+    mix = "".join(stream_labels) + f"amix=inputs={len(stream_labels)}:dropout_transition=0[out]"
+    filter_parts.append(mix)
+    filter_graph = ";".join(filter_parts)
+
+    full_audio = output_dir / "narration-synced.wav"
     subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy",
-         str(full_audio)],
+        ["ffmpeg", "-y", *inputs, "-filter_complex", filter_graph,
+         "-map", "[out]", "-ac", "2", "-ar", "44100", str(full_audio)],
         capture_output=True, text=True, check=True,
     )
     return full_audio
 
 
-def concatenate_subtitles(script: Script, output_dir: Path) -> Path:
-    offset_ms = 0
+def _build_synced_subtitles(
+    script: Script, manifest: list[TimingEntry], output_dir: Path
+) -> Path:
+    """Offset per-segment SRT cues to their real video-timeline positions."""
+    seg_by_id = {s.id: s for s in script.segments}
     cue_index = 1
     output_lines: list[str] = []
 
-    for seg in script.segments:
-        if not seg.srt_path or not seg.duration_ms:
+    for entry in manifest:
+        seg = seg_by_id.get(entry.segment_id)
+        if not seg or not seg.srt_path or not seg.duration_ms:
             continue
 
         srt_path = Path(seg.srt_path)
         if not srt_path.exists():
-            offset_ms += seg.duration_ms
             continue
 
         content = srt_path.read_text().strip()
         if not content:
-            offset_ms += seg.duration_ms
             continue
+
+        offset_ms = entry.video_start_ms
 
         for block in content.split("\n\n"):
             lines = block.strip().split("\n")
@@ -354,9 +423,7 @@ def concatenate_subtitles(script: Script, output_dir: Path) -> Path:
                 output_lines.append("")
                 cue_index += 1
 
-        offset_ms += seg.duration_ms
-
-    full_srt = output_dir / "captions-full.srt"
+    full_srt = output_dir / "captions-synced.srt"
     full_srt.write_text("\n".join(output_lines))
     return full_srt
 
@@ -366,12 +433,37 @@ def _has_subtitles_filter() -> bool:
     return "subtitles" in result.stdout
 
 
-def assemble_video(script: Script, video_path: str, output_path: str, session_dir: Path) -> None:
-    print("  Concatenating audio tracks...")
-    full_audio = concatenate_audio(script, session_dir)
+def _save_manifest(manifest: list[TimingEntry], output_dir: Path) -> Path:
+    """Write the timing manifest to JSON for debugging / re-assembly."""
+    path = output_dir / "timing-manifest.json"
+    data = [
+        {
+            "segment_id": e.segment_id,
+            "video_start_ms": e.video_start_ms,
+            "video_end_ms": e.video_end_ms,
+            "audio_duration_ms": e.audio_duration_ms,
+        }
+        for e in manifest
+    ]
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    return path
 
-    print("  Building subtitle track...")
-    full_srt = concatenate_subtitles(script, session_dir)
+
+def assemble_video(
+    script: Script,
+    video_path: str,
+    output_path: str,
+    session_dir: Path,
+    manifest: list[TimingEntry],
+) -> None:
+    _save_manifest(manifest, session_dir)
+
+    print("  Mixing audio with per-segment timing offsets...")
+    full_audio = _build_mixed_audio(script, manifest, session_dir)
+
+    print("  Building synced subtitle track...")
+    full_srt = _build_synced_subtitles(script, manifest, session_dir)
 
     print(f"  Assembling final video -> {output_path}")
 
@@ -459,16 +551,30 @@ def run_pipeline(
 
     if not skip_recording:
         print("\n[2/3] Recording browser session...")
-        record_demo(script, raw_video, headed=headed, cdp_port=cdp_port, auto_connect=auto_connect)
+        manifest = record_demo(
+            script, raw_video, headed=headed, cdp_port=cdp_port, auto_connect=auto_connect
+        )
     else:
         if not Path(raw_video).exists():
             raise FileNotFoundError(
                 f"--skip-recording requires {raw_video} to exist. Run recording first."
             )
         print("Reusing existing recording.")
+        # Rebuild a simple manifest from audio durations (no real timing data)
+        offset = 0
+        manifest = []
+        for seg in script.segments:
+            dur = seg.duration_ms or 0
+            manifest.append(TimingEntry(
+                segment_id=seg.id,
+                video_start_ms=offset,
+                video_end_ms=offset + dur,
+                audio_duration_ms=dur,
+            ))
+            offset += dur
 
     print("\n[3/3] Assembling final video...")
-    assemble_video(script, raw_video, output_path, work_dir)
+    assemble_video(script, raw_video, output_path, work_dir, manifest)
     print(f"\nDone! Output: {output_path}")
 
 
