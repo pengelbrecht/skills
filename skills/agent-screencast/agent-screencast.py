@@ -249,6 +249,77 @@ class TimingEntry:
 _MIN_HOLD_MS = 500
 
 
+def dry_run(
+    script: Script,
+    session_dir: Path,
+    *,
+    headed: bool = False,
+    cdp_port: int | None = None,
+    auto_connect: bool = False,
+) -> bool:
+    """Replay all segment actions without recording, taking a screenshot after
+    each segment to verify the script works. Returns True if all pass."""
+    base_args: list[str] = []
+    if headed:
+        base_args.append("--headed")
+    if cdp_port:
+        base_args.extend(["--cdp", str(cdp_port)])
+    if auto_connect:
+        base_args.append("--auto-connect")
+
+    shots_dir = session_dir / "dry-run"
+    shots_dir.mkdir(parents=True, exist_ok=True)
+
+    all_passed = True
+    for segment in script.segments:
+        print(f"  Segment: {segment.id}")
+        seg_failed = False
+        for action in segment.actions:
+            try:
+                if action.cmd == "eval":
+                    cmd = _ab_cmd(base_args, "eval", "--stdin")
+                    result = subprocess.run(
+                        cmd, input=action.arg, capture_output=True, text=True, timeout=30
+                    )
+                    if result.returncode != 0 and (
+                        "error" in result.stderr.lower() or "failed" in result.stderr.lower()
+                    ):
+                        print(f"    FAIL: eval error: {result.stderr.strip()[:200]}")
+                        seg_failed = True
+                else:
+                    _run_ab(base_args, action.cmd, action.arg)
+            except RuntimeError as e:
+                print(f"    FAIL: {action.cmd} {action.arg} — {e}")
+                seg_failed = True
+
+        # Screenshot after each segment for visual verification
+        shot_path = str(shots_dir / f"{segment.id}.png")
+        try:
+            _run_ab(base_args, "screenshot", shot_path)
+            print(f"    Screenshot: {shot_path}")
+        except RuntimeError:
+            print(f"    WARN: screenshot failed")
+
+        # Log URL to catch navigation failures (e.g. stuck on login)
+        try:
+            url = _run_ab(base_args, "get", "url")
+            print(f"    URL: {url}")
+        except RuntimeError:
+            pass
+
+        status = "FAIL" if seg_failed else "OK"
+        print(f"    Result: {status}")
+        if seg_failed:
+            all_passed = False
+
+    try:
+        _run_ab(base_args, "close")
+    except RuntimeError:
+        pass
+
+    return all_passed
+
+
 def record_demo(
     script: Script,
     output_path: str,
@@ -522,6 +593,7 @@ def run_pipeline(
     headed: bool = False,
     cdp_port: int | None = None,
     auto_connect: bool = False,
+    dry_run_only: bool = False,
 ) -> None:
     script = Script.load(script_path)
     if voice_override:
@@ -534,6 +606,21 @@ def run_pipeline(
         work_dir = Path(tempfile.mkdtemp(prefix="agent-screencast-"))
 
     print(f"Session directory: {work_dir}")
+
+    if dry_run_only:
+        print("\n[dry-run] Validating script actions...")
+        passed = dry_run(
+            script, work_dir, headed=headed, cdp_port=cdp_port, auto_connect=auto_connect
+        )
+        if passed:
+            print("\n[dry-run] All segments passed. Screenshots in: "
+                  f"{work_dir / 'dry-run'}")
+        else:
+            print("\n[dry-run] Some segments FAILED. Review screenshots in: "
+                  f"{work_dir / 'dry-run'}")
+            sys.exit(1)
+        return
+
     raw_video = str(work_dir / "demo-raw.webm")
 
     if not skip_narration:
@@ -597,6 +684,7 @@ def main() -> int:
     parser.add_argument("--headed", action="store_true", help="Run browser in headed mode")
     parser.add_argument("--cdp", type=int, default=None, help="Connect to Chrome via CDP port")
     parser.add_argument("--auto-connect", action="store_true", help="Auto-discover running Chrome")
+    parser.add_argument("--dry-run", action="store_true", help="Validate script actions without recording (takes screenshots per segment)")
 
     args = parser.parse_args()
 
@@ -611,6 +699,7 @@ def main() -> int:
             headed=args.headed,
             cdp_port=args.cdp,
             auto_connect=args.auto_connect,
+            dry_run_only=args.dry_run,
         )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

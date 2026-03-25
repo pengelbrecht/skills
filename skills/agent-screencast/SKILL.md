@@ -35,11 +35,13 @@ via inline script metadata.
 
 ## How It Works
 
-The pipeline has two key passes — this separation is what makes it work well:
+The pipeline has three passes:
 
 1. **Research pass** — Visit pages, snapshot them, understand what's on screen
-2. **Script + execute** — Write a segment script, then the tool generates audio,
-   records the browser synced to audio timing, and assembles the final MP4
+2. **Dry-run validation** — Replay the script without recording, taking screenshots
+   per segment to verify actions work (login succeeds, pages load, clicks land)
+3. **Script + execute** — Generate audio, record browser synced to audio timing,
+   assemble final MP4
 
 The insight: generate all narration audio first, *then* record the browser with
 precise wait durations matching each segment's audio length. This avoids dead air
@@ -131,6 +133,43 @@ narration text and browser actions that will play during that narration.
 | `fill` | `@e2 "search query"` | Type into an input |
 | `select` | `@e1 "option"` | Select dropdown value |
 
+#### Writing robust actions
+
+Element refs (`@e1`, `@e2`) are fragile — they change when the DOM changes
+(cookie banners, modals, dynamic content). Prefer these approaches in order:
+
+1. **`eval` with DOM queries** (most robust) — Use CSS selectors or attribute
+   lookups that survive DOM changes:
+   ```json
+   { "cmd": "eval", "arg": "document.querySelector('input[name=\"email\"]').focus()" }
+   ```
+
+2. **`find` with semantic locators** — More stable than refs, but syntax must
+   match exactly (`find text "Sign In" click`, not `find text "Sign in" click`):
+   ```json
+   { "cmd": "find", "arg": "text \"Sign In\" click" }
+   ```
+
+3. **`@e` refs** — Only use for elements that are stable (no preceding dynamic
+   content like cookie banners). Always re-snapshot after navigation.
+
+**For form filling**, use `eval` with the native value setter pattern to work
+with reactive frameworks (Vue, React):
+```json
+{
+  "cmd": "eval",
+  "arg": "(() => { const el = document.querySelector('input[name=\"email\"]'); const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; s.call(el, 'user@test.com'); el.dispatchEvent(new Event('input', { bubbles: true })); return 'ok'; })()"
+}
+```
+
+**For button clicks**, match by text content to avoid ref fragility:
+```json
+{
+  "cmd": "eval",
+  "arg": "document.querySelectorAll('button').forEach(b => { if (b.textContent.trim() === 'Sign In') b.click() }); 'ok'"
+}
+```
+
 #### Writing good narration
 
 - Reference what the viewer will actually see: "Watch the quantities update" not
@@ -154,7 +193,26 @@ Run `uv run edge-tts --list-voices` for the full list. Good defaults:
 | `da-DK-ChristelNeural` | Danish female |
 | `da-DK-JeppeNeural` | Danish male |
 
-### Step 3: Run the pipeline
+### Step 3: Validate with dry-run
+
+**Always dry-run before recording.** This replays all actions without recording
+or generating audio, taking a screenshot after each segment. It catches broken
+selectors, failed logins, and navigation issues before you waste time on a
+full recording.
+
+```bash
+uv run <skill-dir>/agent-screencast.py <path-to-script.json> --dry-run --session-dir ./session
+```
+
+This outputs:
+- Per-segment pass/fail status
+- Screenshots in `./session/dry-run/` (one per segment)
+- Current URL after each segment (to verify navigation worked)
+
+**Review the screenshots** (use the Read tool to view PNGs) before proceeding.
+If any segment fails, fix the script and re-run `--dry-run` until all pass.
+
+### Step 4: Run the pipeline
 
 Save the script JSON, then run the self-contained script (uv resolves deps automatically):
 
@@ -179,6 +237,7 @@ This executes all three phases automatically:
 | `--headed` | Show browser window during recording |
 | `--auto-connect` | Connect to user's running Chrome via CDP |
 | `--cdp PORT` | Connect to Chrome on specific CDP port |
+| `--dry-run` | Validate script actions without recording (screenshots per segment) |
 | `--skip-narration` | Reuse existing audio (for re-recording only) |
 | `--skip-recording` | Reuse existing video (for re-assembling only) |
 
@@ -194,15 +253,17 @@ If you just need to re-assemble (e.g. after tweaking subtitles):
 uv run <skill-dir>/agent-screencast.py script.json -o output.mp4 --session-dir ./session --skip-narration --skip-recording
 ```
 
-### Step 4: Review and iterate
+### Step 5: Review and iterate
 
 Play the output video. Common issues and fixes:
 
 | Problem | Fix |
 |---------|-----|
 | Actions happen too fast | Add `{"cmd": "wait", "arg": "500"}` between actions |
-| Wrong element clicked | Re-snapshot the page, check refs are current |
-| Narration doesn't match screen | The research pass snapshots may be stale — redo them |
+| Wrong element clicked | Use `eval` with CSS selectors instead of `@e` refs |
+| Login/auth fails silently | Use `eval` with native value setter for form fields (see robust actions above) |
+| Cookie banner shifts refs | Dismiss banners via `eval` before other actions |
+| Narration doesn't match screen | Run `--dry-run` first to verify, then record |
 | Dead air / long pauses | Remove unnecessary `wait` actions, shorten narration |
 | Page not loaded when actions start | Add `{"cmd": "wait", "arg": "--load networkidle"}` after `open` |
 
@@ -223,11 +284,16 @@ agent-browser snapshot -i
 # See: @e1 [heading] "Dashboard", @e3 [card] "Revenue", ...
 
 # 2. Write script based on what you saw (save as demo-script.json)
+#    Prefer eval with CSS selectors over @e refs for robustness
 
-# 3. Run pipeline
-uv run <skill-dir>/agent-screencast.py /path/to/demo-script.json -o feature-demo.mp4 --session-dir ./session
+# 3. Validate with dry-run (catches broken selectors, failed logins, etc.)
+uv run <skill-dir>/agent-screencast.py demo-script.json --dry-run --session-dir ./session
+# Review screenshots in ./session/dry-run/*.png
 
-# 4. Output: feature-demo.mp4 with narration + subtitles
+# 4. Record (only after dry-run passes)
+uv run <skill-dir>/agent-screencast.py demo-script.json -o feature-demo.mp4 --session-dir ./session
+
+# 5. Output: feature-demo.mp4 with narration + subtitles
 ```
 
 ## Subtitle note
