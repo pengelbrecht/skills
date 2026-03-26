@@ -45,32 +45,44 @@ Execute these 3 phases in order. **Never skip Phase 2.**
 
 1. Extract URL from user request
 2. Identify section filter if specified (e.g., "hero only", "just the pricing")
-3. Scrape using agent-browser in headless mode (default, no flags needed):
+3. Scrape using agent-browser in headless mode (default, no flags needed).
+
+**IMPORTANT: Run all agent-browser commands sequentially, one at a time.** They share a single browser session. Do NOT run them as parallel tool calls — if one fails, parallel siblings get cancelled.
+
+**IMPORTANT: Shell escaping with `agent-browser eval`.** Complex JS with nested quotes, arrow functions, or template literals often breaks due to shell escaping. Prefer these approaches:
+- Use `agent-browser get text`, `get html`, `get attr` built-in commands instead of eval when possible
+- For eval, keep JS simple — avoid nested quotes and callbacks
+- For complex JS, pipe via stdin: `echo 'your code here' | agent-browser eval --stdin`
+- Or use base64: `agent-browser eval -b "$(echo 'your code' | base64)"`
 
 ```bash
-# Navigate and wait for full render
+# Step 1: Navigate and wait for full render
 agent-browser open [TARGET_URL]
 agent-browser wait --load networkidle
 
-# Extract full page HTML
+# Step 2: Extract full page HTML
 agent-browser eval "document.documentElement.outerHTML"
 
-# Extract page text for content analysis
+# Step 3: Extract page text for content analysis
 agent-browser get text "body"
 
-# Get page title and meta
-agent-browser eval "JSON.stringify({ title: document.title, meta: Array.from(document.querySelectorAll('meta')).map(m => ({ name: m.name || m.getAttribute('property'), content: m.content })) })"
+# Step 4: Get page title
+agent-browser eval "document.title"
 
-# Get computed styles for design tokens
-agent-browser eval "JSON.stringify({ fonts: getComputedStyle(document.body).fontFamily, bgColor: getComputedStyle(document.body).backgroundColor })"
+# Step 5: Get meta tags (use stdin for complex JS)
+echo 'JSON.stringify(Array.from(document.querySelectorAll("meta")).map(function(m) { return { name: m.name || m.getAttribute("property"), content: m.content } }))' | agent-browser eval --stdin
 
-# Take a reference screenshot
+# Step 6: Get computed styles for design tokens (simple eval)
+agent-browser eval "getComputedStyle(document.body).fontFamily"
+agent-browser eval "getComputedStyle(document.body).backgroundColor"
+
+# Step 7: Take a reference screenshot
 agent-browser screenshot ./reference.png
 
-# Get accessibility snapshot for structure understanding
+# Step 8: Get accessibility snapshot for structure understanding
 agent-browser snapshot
 
-# Close browser when done
+# Step 9: Close browser when done
 agent-browser close
 ```
 
@@ -82,14 +94,31 @@ agent-browser get html "section.pricing"
 agent-browser snapshot -s "#hero"
 ```
 
-5. For extracting design tokens (colors, fonts, spacing), use eval with computed styles:
+5. For extracting design tokens (colors, fonts, spacing), use eval with simple expressions or stdin for complex JS:
 
 ```bash
-# Extract all CSS custom properties
-agent-browser eval "JSON.stringify(Array.from(document.styleSheets).flatMap(s => { try { return Array.from(s.cssRules) } catch { return [] } }).filter(r => r.selectorText === ':root').flatMap(r => r.cssText.match(/--[^:]+:[^;]+/g) || []))"
+# Extract CSS custom properties (via stdin to avoid escaping issues)
+cat <<'JSEOF' | agent-browser eval --stdin
+var root = document.querySelector(":root");
+var styles = getComputedStyle(root);
+var props = Array.from(document.styleSheets)
+  .flatMap(function(s) { try { return Array.from(s.cssRules) } catch(e) { return [] } })
+  .filter(function(r) { return r.selectorText === ":root" })
+  .flatMap(function(r) { return r.cssText.match(/--[^:]+:[^;]+/g) || [] });
+JSON.stringify(props);
+JSEOF
 
-# Extract key colors from elements
-agent-browser eval "JSON.stringify(['h1','h2','p','a','button','nav','footer','header'].map(sel => { const el = document.querySelector(sel); if (!el) return null; const s = getComputedStyle(el); return { el: sel, color: s.color, bg: s.backgroundColor, font: s.fontFamily, size: s.fontSize } }).filter(Boolean))"
+# Extract key colors from elements (via stdin)
+cat <<'JSEOF' | agent-browser eval --stdin
+var sels = ["h1","h2","p","a","button","nav","footer","header"];
+var result = sels.map(function(sel) {
+  var el = document.querySelector(sel);
+  if (!el) return null;
+  var s = getComputedStyle(el);
+  return { el: sel, color: s.color, bg: s.backgroundColor, font: s.fontFamily, size: s.fontSize };
+}).filter(function(x) { return x !== null });
+JSON.stringify(result);
+JSEOF
 ```
 
 ### Phase 2: Analysis (MANDATORY)
