@@ -120,6 +120,7 @@ package.json
 - [Animations or interactions requiring islands]
 - [Missing content that needs placeholders]
 - [Accessibility considerations]
+- [ ] Background video detected: [URL] — will embed as iframe / use poster image fallback (delete if none found)
 
 ---
 

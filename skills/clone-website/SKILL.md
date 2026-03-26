@@ -76,13 +76,16 @@ echo 'JSON.stringify(Array.from(document.querySelectorAll("meta")).map(function(
 agent-browser eval "getComputedStyle(document.body).fontFamily"
 agent-browser eval "getComputedStyle(document.body).backgroundColor"
 
-# Step 7: Take a reference screenshot
-agent-browser screenshot ./reference.png
+# Step 7: Take a full-page reference screenshot (captures entire page without scrolling)
+agent-browser screenshot --full ./reference.png
 
-# Step 8: Get accessibility snapshot for structure understanding
+# Step 8: Detect background videos (native and iframe-embedded)
+echo 'JSON.stringify(Array.from(document.querySelectorAll("video source, video[src], iframe[src*=vimeo], iframe[src*=youtube], iframe[src*=wistia]")).map(function(el) { return { tag: el.tagName, src: el.src || el.getAttribute("src") } }))' | agent-browser eval --stdin
+
+# Step 9: Get accessibility snapshot for structure understanding
 agent-browser snapshot
 
-# Step 9: Close browser when done
+# Step 10: Close browser when done
 agent-browser close
 ```
 
