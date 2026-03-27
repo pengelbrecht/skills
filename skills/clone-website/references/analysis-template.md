@@ -46,6 +46,14 @@ Use this template to present analysis in Phase 2. Fill all sections before askin
 - Body: [Font Family], weights: [400/500]
 - Scale: [h1: px, h2: px, h3: px, body: px, small: px]
 
+**Fonts**:
+
+| Font | Type | Source | Action |
+|------|------|--------|--------|
+| [Name] | Google Font | fonts.googleapis.com | Use `@fontsource/[name]` |
+| [Name] | Commercial | self-hosted .woff2 | Ask user for license → download or substitute |
+| [Name] | System | system stack | Use as-is |
+
 **Spacing**:
 - Base unit: [4px / 8px]
 - Section gap: [px]
@@ -111,6 +119,22 @@ public/
 astro.config.mjs             # Astro config + integrations
 package.json
 ```
+
+---
+
+### Behaviors Detected
+
+| Section | Interaction Model | Trigger | Description |
+|---------|-------------------|---------|-------------|
+| Header | scroll-driven | scroll > Npx | Shrinks / gains shadow on scroll |
+| Hero | static | — | No interactivity |
+| Features | scroll-driven | IntersectionObserver | Cards fade-in on viewport entry |
+| Tabs | click-driven | click on tab | Content switches per tab |
+| ... | ... | ... | ... |
+
+**Smooth scroll library**: [None / Lenis / Locomotive Scroll / custom]
+**Scroll-snap sections**: [Yes — list which / No]
+**Sticky elements**: [header, sidebar, etc.]
 
 ---
 
