@@ -2,6 +2,8 @@
 
 This is a monorepo of Claude Code skills authored by Peter Engelbrecht.
 
+> **Note:** "Skills" in this repo are distributable skill packages (installed via [skills.sh](https://skills.sh) / `npx skills add`) — they are NOT `.claude/` or `~/.claude/` local configuration files. Each skill lives in a subdirectory here for distribution to other Claude Code instances.
+
 ## Structure
 
 ```
@@ -25,3 +27,4 @@ Each skill lives in `skills/<skill-name>/` with a `SKILL.md` at its root. This s
 ## Current skills
 
 - **agent-screencast** — Record narrated, captioned video demos of web apps using agent-browser + edge-tts + ffmpeg
+- **gws-slides** — Create polished, professional Google Slides presentations using the gws CLI
