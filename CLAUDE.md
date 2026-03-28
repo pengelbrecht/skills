@@ -27,3 +27,4 @@ Each skill lives in `skills/<skill-name>/` with a `SKILL.md` at its root. This s
 ## Current skills
 
 - **agent-screencast** — Record narrated, captioned video demos of web apps using agent-browser + edge-tts + ffmpeg
+- **gws-slides** — Create polished, professional Google Slides presentations using the gws CLI
