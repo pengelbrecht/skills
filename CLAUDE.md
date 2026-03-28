@@ -2,6 +2,8 @@
 
 This is a monorepo of Claude Code skills authored by Peter Engelbrecht.
 
+> **Note:** "Skills" in this repo are distributable skill packages (installed via [skills.sh](https://skills.sh) / `npx skills add`) — they are NOT `.claude/` or `~/.claude/` local configuration files. Each skill lives in a subdirectory here for distribution to other Claude Code instances.
+
 ## Structure
 
 ```
