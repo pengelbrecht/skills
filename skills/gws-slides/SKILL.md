@@ -11,7 +11,7 @@ description: >
   Also triggers when users mention gws slides, batchUpdate, or Slides API in the
   context of creating visual content.
 metadata:
-  version: 0.1.0
+  version: 0.4.0
   requires:
     bins:
       - gws
@@ -19,587 +19,284 @@ metadata:
 
 # GWS Slides
 
-Create polished, professional Google Slides presentations using the `gws` CLI. This skill wraps the Google Slides API with strong design opinions — typography, color, spacing, and layout — so every deck looks intentional, not auto-generated.
+Create polished, professional Google Slides presentations using the `gws` CLI. This skill wraps the Google Slides API with strong design opinions so every deck looks intentional, not auto-generated.
 
 > **PREREQUISITE:** The `gws` CLI must be on `$PATH` and authenticated.
 
 ## Prerequisites
 
 ```bash
-which gws || echo "MISSING: install gws CLI — see https://github.com/googleworkspace/cli"
-gws auth login -s slides   # OAuth login with Slides scope (first time: run gws auth setup)
-gws slides --help           # verify Slides API is accessible
+which gws || echo "MISSING: install gws CLI"
+gws auth login -s slides,drive   # OAuth login with Slides + Drive scope
+gws slides --help                 # verify Slides API is accessible
 ```
 
-If `gws auth setup` has never been run, it creates a Cloud project and enables APIs — run it once before `gws auth login`.
+If `gws auth setup` has never been run, run it once to create a Cloud project and enable APIs.
 
-## Quick Reference: gws CLI
+> **CLI quirk:** `gws` prints `Using keyring backend: keyring` to stdout before JSON output. When parsing responses programmatically, skip the first line (e.g., `tail -n +2`).
+
+## Quick Reference
 
 ```bash
-gws slides <resource> <method> [flags]
-
-# Key commands
 gws slides presentations create --json '{"title": "My Deck"}'
-gws slides presentations get --params '{"presentationId": "PRESENTATION_ID"}'
-gws slides presentations batchUpdate --params '{"presentationId": "PRESENTATION_ID"}' --json '{"requests": [...]}'
-
-# Discover available methods and params
-gws slides --help
-gws schema slides.presentations.batchUpdate
+gws slides presentations get --params '{"presentationId": "ID"}'
+gws slides presentations batchUpdate --params '{"presentationId": "ID"}' --json '{"requests": [...]}'
+gws schema slides.<resource>.<method>   # inspect params/types before calling
 ```
 
-Use `gws schema slides.<resource>.<method>` before calling any method to inspect required params, types, and defaults.
+---
 
-## Design System
+## Theme System
 
-Every slide produced by this skill must follow these rules. They are non-negotiable defaults — only deviate when the user explicitly requests a different style.
+Every presentation uses a theme — a YAML file that pins fonts, colors, and an optional logo/wordmark. Themes keep decks consistent across presentations and let users express their brand without re-specifying preferences each time.
+
+### Finding a theme
+
+Check these locations in order:
+1. `.gws-slides-theme.yaml` in the current working directory (project-specific)
+2. `~/.gws-slides-theme.yaml` (user default)
+
+If a theme file exists, use it silently. If no theme is found, run the theme interview before building the deck.
+
+### Theme file format
+
+```yaml
+name: "Company Name"
+
+font:
+  family: "Inter"            # One family for everything — hierarchy through size/weight, not competing typefaces
+  fallback: "Arial"          # Web-safe fallback
+  mono: "JetBrains Mono"    # Code blocks only (functional, not decorative)
+
+logo:
+  path: "./logo.png"         # Local file path — will be uploaded to Drive automatically
+  placement: "bottom-right"  # bottom-right | bottom-left | bottom-center | title-only
+  height: 24                 # Points (width scales proportionally)
+
+colors:
+  background: "#FFFFFF"       # Slide background
+  surface: "#F5F5F7"          # Content cards, callout boxes — prevents flat white-on-white
+  text_primary: "#1D1D1F"     # Headings, body text
+  text_secondary: "#6E6E73"   # Subtitles, captions, metadata
+  accent_primary: "#0066CC"   # Key data, links, primary shapes
+  accent_secondary: "#34C759" # Positive indicators, success states
+  accent_warm: "#FF3B30"      # Alerts, negative indicators
+  accent_neutral: "#FF9500"   # Warnings, highlights
+  divider: "#D2D2D7"          # Lines, shape outlines, borders
+  dark_bg: "#1D1D1F"          # Section divider backgrounds
+  dark_text: "#FFFFFF"        # Text on dark backgrounds
+  dark_accent: "#64D2FF"      # Accent on dark backgrounds
+```
+
+### Theme interview
+
+When no theme file exists, ask these questions before building. Keep it conversational — most fields have sensible defaults.
+
+1. **"Do you have brand colors?"** If yes, get the primary color at minimum. Derive the full palette from one strong brand color:
+   - Background stays white/near-white (the brand color is an accent, not a flood fill)
+   - Text primary: very dark neutral with high contrast
+   - Surface: 2-3% gray tint of background
+   - Brand color → `accent_primary`
+   - Darken brand color → `dark_bg`; lighten it → `dark_accent`
+2. **"Any font preference?"** Default to Inter if none. One family is the standard — weight and size create hierarchy without visual noise from mixed typefaces.
+3. **"Do you have a company logo or wordmark?"** Optional. Can be a local file path — the skill handles uploading to Drive. Ask about preferred placement (bottom-right is the default). SVGs must be converted to PNG first (the Slides API only accepts raster images).
+4. **"Save as your default theme?"** Write to `~/.gws-slides-theme.yaml` for reuse, or `.gws-slides-theme.yaml` for project-only.
+
+### Default theme
+
+When the user declines theming or wants to jump straight in:
+
+```yaml
+name: "Default"
+font:
+  family: "Inter"
+  fallback: "Arial"
+  mono: "Roboto Mono"
+colors:
+  background: "#FFFFFF"
+  surface: "#F8F9FA"
+  text_primary: "#1A1A2E"
+  text_secondary: "#5F6368"
+  accent_primary: "#1A73E8"
+  accent_secondary: "#34A853"
+  accent_warm: "#EA4335"
+  accent_neutral: "#FBBC04"
+  divider: "#DADCE0"
+  dark_bg: "#1A1A2E"
+  dark_text: "#FFFFFF"
+  dark_accent: "#8AB4F8"
+```
+
+---
+
+## Design Principles
+
+These principles shape every slide. They're grounded in how people process projected content — understanding the reasoning helps you make good calls in edge cases rather than blindly following rules.
 
 ### Typography
 
-**Font stack (in order of preference):**
+**One font family, multiple weights.** Use the theme's `font.family` for all text. Hierarchy comes from size and weight (regular 400, medium 500, bold 700). Mixing typefaces adds visual noise and makes decks look cobbled together rather than designed.
 
-| Role | Font | Fallback | Weight |
-|------|------|----------|--------|
-| Headings | Google Sans | Arial | Bold (700) |
-| Subheadings | Google Sans | Arial | Medium (500) |
-| Body | Google Sans Text | Arial | Regular (400) |
-| Monospace/code | Google Sans Mono | Courier New | Regular (400) |
-| Accent/quotes | Google Sans Text | Arial | Italic (400i) |
+| Element | Size | Line height | Rationale |
+|---------|------|-------------|-----------|
+| Section divider title | 48–56 pt | 1.1 | Needs to read from the back of the room |
+| Slide title | 36–44 pt | 1.15 | Primary anchor for the eye |
+| Subtitle / tagline | 20–24 pt | 1.3 | Clearly subordinate to title |
+| Body / L1 bullets | 16–18 pt | 1.15 | Readable at projection distance |
+| L2 sub-bullets | 14–16 pt | 1.15 | Clearly subordinate to L1 |
+| Captions / labels | 12–14 pt | 1.4 | Secondary info, closer viewing |
+| Footnotes | 10–11 pt | 1.3 | Reference only |
 
-If Google Sans is not available (it may not render for non-Google accounts), use **Inter** as the primary font and **Roboto Mono** for code.
+**Keep titles to 6–7 words.** Short titles let the audience grasp the point instantly. If it's longer, it belongs as a subtitle or the idea needs splitting.
 
-**Font sizes (points):**
+**Left-align body text.** Centered body text forces the eye to find a new starting position on every line, slowing reading. Center-align only single-line titles on divider slides.
 
-| Element | Size | Line spacing | Letter spacing |
-|---------|------|--------------|----------------|
-| Slide title | 36–44 pt | 1.15 | -0.02 em |
-| Section divider title | 48–56 pt | 1.1 | -0.03 em |
-| Subtitle / tagline | 20–24 pt | 1.3 | 0 |
-| Body text | 16–18 pt | 1.5 | 0.01 em |
-| Bullet points | 16–18 pt | 1.5 | 0.01 em |
-| Captions / labels | 12–14 pt | 1.4 | 0.02 em |
-| Footnotes / sources | 10–11 pt | 1.3 | 0.02 em |
+**Limit to 2 font sizes per slide** (e.g., title + body). More sizes create competing visual levels that confuse the hierarchy.
 
-**Rules:**
-- Never use more than 2 font sizes per slide (title + body, or title + subtitle)
-- Title case for slide titles, sentence case for everything else
-- Maximum 6–7 words per slide title — if longer, it's a subtitle
-- Never center body text — left-align always (titles may be centered on divider slides)
-- No underlines except for hyperlinks
-- No ALL CAPS except for short labels (2–3 words max, e.g., "KEY METRICS")
-- Minimum contrast ratio of 4.5:1 for body text, 3:1 for large text (titles)
+**Formatting restraint:** Title case for titles, sentence case for everything else. No underlines except hyperlinks. No ALL CAPS beyond short labels (2–3 words like "KEY METRICS"). These choices project professionalism; decorative formatting undermines it.
 
-### Color Palettes
+### Color
 
-Provide a default palette and let users override. When the user provides brand colors, build the full palette around them.
+**Three colors per slide maximum** (background + text + one accent). Every additional color competes for attention. When everything is highlighted, nothing is.
 
-**Default palette (neutral professional):**
+**Saturated colors stay small** — a key metric, a badge, faux bullet glyphs. Large saturated areas overwhelm the eye and reduce text legibility. Use the theme's `surface` color for content cards and callout backgrounds.
 
-| Role | Hex | Usage |
-|------|-----|-------|
-| Background | `#FFFFFF` | Slide background |
-| Surface | `#F8F9FA` | Content cards, callout boxes |
-| Text primary | `#1A1A2E` | Headings, body text |
-| Text secondary | `#5F6368` | Subtitles, captions, labels |
-| Accent primary | `#1A73E8` | Key data, links, primary shapes |
-| Accent secondary | `#34A853` | Positive indicators, success |
-| Accent warm | `#EA4335` | Alerts, negative indicators |
-| Accent neutral | `#FBBC04` | Warnings, highlights |
-| Divider/border | `#DADCE0` | Lines, shape outlines |
+**Dark backgrounds for section dividers only.** They create visual rhythm, signaling "new topic." Using them for content slides makes the deck feel heavy and reduces contrast options.
 
-**Dark variant (for section dividers or emphasis slides):**
-
-| Role | Hex |
-|------|-----|
-| Background | `#1A1A2E` |
-| Text primary | `#FFFFFF` |
-| Text secondary | `#B0B3B8` |
-| Accent primary | `#8AB4F8` |
-
-**Rules:**
-- Maximum 3 colors per slide (background + text + one accent)
-- Never use saturated colors for large areas — reserve them for small accents
-- Use the surface color (`#F8F9FA`) for content cards, not white-on-white
-- Dark backgrounds only for divider slides or full-bleed image slides
-- Ensure text is always readable: test against the background color
-- For charts/graphs: use the accent palette in order, never repeat colors
+**Contrast is legibility.** Minimum 4.5:1 for body text, 3:1 for titles. This isn't just accessibility compliance — it's about readability in rooms with ambient light hitting the projector screen.
 
 ### Spacing & Layout
 
-**Slide dimensions:** 10" x 5.625" (widescreen 16:9, the default)
+**Slide dimensions:** 720 × 405 pt (10" × 5.625", 16:9 widescreen)
 
-**Margins and safe zone:**
+Projectors and screens crop edges unpredictably, so content needs safe zones:
 
-| Zone | Inset from edge |
-|------|----------------|
-| Safe zone (all content) | 0.5" from all edges |
-| Comfortable zone (body text) | 0.75" from left/right, 1.0" from top, 0.6" from bottom |
-| Title position | Top-left of comfortable zone |
-| Body content start | 0.3" below title baseline |
+| Zone | Inset | What goes here |
+|------|-------|----------------|
+| Safe zone | 36 pt (0.5") all edges | Absolute boundary — nothing outside |
+| Comfortable zone | 54 pt sides, 72 pt top, 43 pt bottom | Body content lives here |
 
-**Spacing units (in inches):**
+**At least 40% whitespace.** Projected slides are viewed at distance in low-attention environments. Density kills comprehension. If content exceeds 70% of the slide area, split into two slides. The audience absorbs two clean slides faster than one cramped one.
 
-| Space | Size | Usage |
-|-------|------|-------|
-| XS | 0.1" | Between label and value, icon and text |
-| S | 0.2" | Between bullet items, between related elements |
-| M | 0.35" | Between title and body, between content blocks |
-| L | 0.5" | Between major sections on a slide |
-| XL | 0.75" | Margin from edges for body content |
+**Alignment creates the "designed" feeling.** Elements sharing left edges, baselines, or center axes is what separates professional from amateur. Use consistent spacing:
 
-**Rules:**
-- Never place text or shapes within 0.5" of any slide edge
-- Consistent spacing between same-type elements (e.g., all bullets use S spacing)
-- Use invisible alignment — elements should share left edges, baselines, or center axes
-- Maximum 60% of the slide area should contain content (40% whitespace minimum)
-- If content fills more than 70% of the slide, split into two slides
-- Prefer left-heavy or grid layouts — avoid centered-everything layouts (except dividers)
-- Number columns: 2, 3, or 4 — never 5+ (too cramped at slide scale)
+| Token | Size | Use for |
+|-------|------|---------|
+| XS | 7 pt (0.1") | Icon-to-text, label-to-value |
+| S | 14 pt (0.2") | Between bullets, related elements |
+| M | 25 pt (0.35") | Title-to-body gap |
+| L | 36 pt (0.5") | Between major sections |
+| XL | 54 pt (0.75") | Body margin from edges |
 
 ### Layouts
 
-Use these standard layouts. Each slide must use exactly one layout.
+Every slide uses one of 10 standard layouts: Title Slide, Section Divider, Title + Body, Two-Column, Grid (2×2 / 3×1), Big Number, Image + Text, Full-Bleed Image, Quote, Closing/CTA.
 
-#### 1. Title Slide
-- Large title centered vertically and horizontally
-- Subtitle below, smaller, in text-secondary color
-- Optional: small logo bottom-right or bottom-center
-- Background: white or branded dark
+See `references/layouts.md` for detailed descriptions and positioning guidance for each layout.
 
-#### 2. Section Divider
-- Large title (48–56 pt) centered or left-aligned
-- Background: dark or accent color, full bleed
-- Optional: section number in accent color
-- No body text — this slide is a pause/transition
+**Vary the rhythm** — avoid two adjacent slides with the same layout. Alternating layouts sustains audience engagement.
 
-#### 3. Title + Body (the workhorse)
-- Title top-left in comfortable zone
-- Body text or bullets below, left-aligned
-- Right 40% may contain a supporting visual (image, chart, icon)
-- If no visual, body text can span full width but add generous right margin
-
-#### 4. Two-Column
-- Title spanning full width at top
-- Two equal columns below (each ~4.1" wide with 0.3" gutter)
-- Use for comparisons, before/after, pros/cons
-- Each column can contain text, images, or a mix
-
-#### 5. Grid (2x2 or 3x1)
-- Title at top
-- 2x2: four equal cards arranged in a grid
-- 3x1: three cards in a row (for features, pillars, team members)
-- Cards should have consistent internal structure (icon/number, title, description)
-
-#### 6. Big Number / Statistic
-- One large number or metric (60–80 pt, accent color, bold)
-- Label above or below in text-secondary (14 pt)
-- Brief context sentence in body text
-- Used for KPIs, milestones, impact statements
-
-#### 7. Image + Text (split)
-- Slide split roughly 50/50 or 60/40
-- Image on one side (full height, edge-to-edge on that side)
-- Text on the other side with comfortable margins
-- Image should bleed to the slide edge (no margin on image side)
-
-#### 8. Full-Bleed Image
-- Image covers entire slide
-- Text overlay with semi-transparent dark scrim if needed
-- Use sparingly — maximum 1–2 per deck
-
-#### 9. Quote
-- Large quote text (24–28 pt, italic or accent font)
-- Attribution below in smaller text-secondary
-- Left-aligned with a vertical accent bar or large quotation mark
-- Generous whitespace
-
-#### 10. Closing / CTA
-- Similar to title slide
-- Clear call-to-action or next steps
-- Contact information or links in caption size
+---
 
 ## Workflow
 
 ### Phase 1: Plan the Deck
 
-Before touching the API, plan the full deck structure.
+Before touching the API:
 
-1. **Clarify the goal:** Ask the user (or infer) — what is this deck for? (pitch, internal update, teaching, proposal)
-2. **Draft an outline:** List every slide with:
-   - Slide number
-   - Layout (from the layouts above)
-   - Title text
-   - Key content (bullets, data points, image descriptions)
-3. **Apply the 1-idea-per-slide rule:** If any slide has 2+ distinct ideas, split it
-4. **Check flow:** Title → Agenda/Overview → Content sections (with dividers) → Summary/CTA → Closing
-5. **Present the outline to the user** for approval before building
+1. **Load the theme** — find theme file or run the interview
+2. **Clarify the goal** — what is this deck for? (pitch, internal update, teaching, proposal)
+3. **Draft an outline** — each slide gets: number, layout name, title, key content
+4. **One idea per slide** — if a slide has 2+ distinct points, split it
+5. **Check the arc:** Title → Agenda → Content (with section dividers) → Summary → Closing
+6. **Present the outline** to the user for approval before building
 
-**Slide count guidelines:**
-- 5-minute talk: 8–12 slides
-- 10-minute talk: 15–20 slides
-- Read-ahead / memo deck: as many as needed, but each slide must stand alone
+Slide count targets: 5-min talk → 8–12 slides, 10-min → 15–20, read-ahead → as many as needed.
 
 ### Phase 2: Create the Presentation
 
 ```bash
-# Create a blank presentation
-gws slides presentations create --json '{"title": "TITLE_HERE"}'
+gws slides presentations create --json '{"title": "TITLE"}'
 ```
 
-Save the returned `presentationId` — all subsequent calls need it.
+Save the returned `presentationId` — every subsequent call needs it.
 
-### Phase 3: Build Slides via batchUpdate
+### Phase 3: Build Slides
 
-Build the deck using `presentations.batchUpdate`. Each call sends an array of requests that are applied atomically.
+Build via `presentations.batchUpdate` in batches of 3–5 slides. Always use the `BLANK` predefined layout and build content manually — the built-in Google layouts have poor default styling that fights your theme.
 
-**Strategy:** Build in batches of 3–5 slides at a time. This keeps requests manageable and allows checkpoint validation.
+Read `references/api-patterns.md` for all JSON patterns: creating slides, text boxes, shapes, images, backgrounds, bullets, charts, and content cards.
 
-#### Creating a slide
+**Key rules during construction:**
+- Every color and font value comes from the loaded theme — never hardcode hex values or font names
+- Place the logo on title and closing slides (or per `logo.placement` in the theme)
+- **Use faux bullets, not `createParagraphBullets`.** The Slides API cannot color native bullet glyphs independently from text (this is a known API limitation). Instead, insert Unicode glyph characters (`●`, `■`, `→`, etc.) as text, color them `accent_primary`, and use `indentStart`/`indentFirstLine` with a tab character for hanging indent. See `references/api-patterns.md` for the full pattern.
+- Use accent bars only on non-bullet slides (quotes, plain body text) — they collide visually with bullet markers
+- **For charts:** generate as a high-DPI PNG (matplotlib, plotly, etc.) using theme colors, then upload via the Drive image pipeline and insert with `createImage`
+- Use predictable object IDs: `slide_001`, `slide_001_title`, `slide_001_body`, etc.
+- Keep batchUpdate payloads to 3–5 slides — large payloads are harder to debug when something goes wrong
 
-```json
-{
-  "createSlide": {
-    "objectId": "slide_001",
-    "insertionIndex": 0,
-    "slideLayoutReference": {
-      "predefinedLayout": "BLANK"
-    }
-  }
-}
-```
+### Bullet Styles
 
-**Always use `BLANK` layout** and build content manually. The predefined layouts (TITLE, TITLE_AND_BODY, etc.) have poor default styling that fights our design system.
+Three built-in styles. The default is `disc`. Max 2 nesting levels.
 
-#### Adding text
+| Style | L1 glyph | L2 glyph | Feel |
+|-------|----------|----------|------|
+| **disc** (default) | `●` | `○` | Clean, universal |
+| **square** | `■` | `–` | Bold, editorial |
+| **arrow** | `→` | `▸` | Modern, techy |
 
-```json
-{
-  "createShape": {
-    "objectId": "slide_001_title",
-    "shapeType": "TEXT_BOX",
-    "elementProperties": {
-      "pageObjectId": "slide_001",
-      "size": {
-        "width": {"magnitude": 540, "unit": "PT"},
-        "height": {"magnitude": 50, "unit": "PT"}
-      },
-      "transform": {
-        "scaleX": 1, "scaleY": 1,
-        "translateX": 54, "translateY": 72,
-        "unit": "PT"
-      }
-    }
-  }
-}
-```
+**Sizing:** Glyphs render at the same font size as their line's text (L1: 17pt, L2: 15pt). Unicode glyphs like `●`, `■`, `→` are naturally proportioned within the em box, so they appear smaller than letters and align vertically on the baseline without manual adjustment.
 
-Then insert text and style it:
+**Spacing rules for bullet groups:**
+- L1 → L1 (between top-level groups): `spaceAbove: 14pt` — clear visual separation
+- L1 → L2 or L2 → L2 (within a group): `spaceAbove: 4pt` — tight, reads as one unit
+- `lineSpacing: 115` (within a multiline bullet)
+- First bullet on the slide: `spaceAbove: 0`
 
-```json
-{
-  "insertText": {
-    "objectId": "slide_001_title",
-    "text": "Your Slide Title"
-  }
-},
-{
-  "updateTextStyle": {
-    "objectId": "slide_001_title",
-    "style": {
-      "fontFamily": "Google Sans",
-      "fontSize": {"magnitude": 40, "unit": "PT"},
-      "foregroundColor": {
-        "opaqueColor": {"rgbColor": {"red": 0.102, "green": 0.102, "blue": 0.180}}
-      },
-      "bold": true
-    },
-    "textRange": {"type": "ALL"},
-    "fields": "fontFamily,fontSize,foregroundColor,bold"
-  }
-}
-```
+**Indentation (hanging indent via tab):**
+- L1: `indentFirstLine: 0pt`, `indentStart: 28pt`
+- L2: `indentFirstLine: 28pt`, `indentStart: 48pt`
 
-#### Adding shapes and rectangles
+**L2 text styling:** 15pt, `text_secondary` color — clearly subordinate to L1.
 
-For content cards, accent bars, divider lines:
+### Phase 4: Quality Check
 
-```json
-{
-  "createShape": {
-    "objectId": "slide_003_card_bg",
-    "shapeType": "RECTANGLE",
-    "elementProperties": {
-      "pageObjectId": "slide_003",
-      "size": {
-        "width": {"magnitude": 260, "unit": "PT"},
-        "height": {"magnitude": 200, "unit": "PT"}
-      },
-      "transform": {
-        "scaleX": 1, "scaleY": 1,
-        "translateX": 54, "translateY": 120,
-        "unit": "PT"
-      }
-    }
-  }
-},
-{
-  "updateShapeProperties": {
-    "objectId": "slide_003_card_bg",
-    "shapeProperties": {
-      "shapeBackgroundFill": {
-        "solidFill": {
-          "color": {"rgbColor": {"red": 0.973, "green": 0.976, "blue": 0.980}}
-        }
-      },
-      "outline": {"outlineFill": {"solidFill": {"color": {"rgbColor": {"red": 0.855, "green": 0.859, "blue": 0.878}}}}, "weight": {"magnitude": 1, "unit": "PT"}},
-      "shadow": {
-        "type": "OUTER",
-        "blurRadius": {"magnitude": 8, "unit": "PT"},
-        "color": {"rgbColor": {"red": 0, "green": 0, "blue": 0}},
-        "alpha": 0.08,
-        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 0, "translateY": 2, "unit": "PT"}
-      }
-    },
-    "fields": "shapeBackgroundFill,outline,shadow"
-  }
-}
-```
+Run this after each batch and again after the full deck is complete. Do not skip it — catching issues early is far cheaper than fixing a finished deck.
 
-#### Setting slide background
+1. **Retrieve** the presentation: `gws slides presentations get`
+2. **Per-slide checks:**
+   - Typography: ≤2 font sizes on simple slides (grid/multi-column/closing may use 3), correct scale for element type, theme font used
+   - Color: ≤3 colors, sufficient contrast, only theme colors
+   - Faux bullets: glyph characters (`●`, `■`, `→`, etc.) are `accent_primary` colored, text is `text_primary` (L1) or `text_secondary` (L2), no accent bars on bullet slides
+   - Bullet spacing: 14pt `spaceAbove` between L1 groups, 4pt within groups, correct indentation (L1: 0/28pt, L2: 28/48pt)
+   - Spacing: content in safe zone, body in comfortable zone, ≥40% whitespace
+   - **Overlap detection:** for each pair of elements on a slide, verify they don't collide — compare each element's bounding box (`translateY + height` of one vs `translateY` of another). Charts, images, and captions are especially prone to overlap
+   - Content: one idea, ≤6 bullets, ≤8 words per bullet, title ≤7 words
+   - Layout: matches a standard layout, elements aligned, clear hierarchy
+   - Theme: logo present where expected, no stray hardcoded values
+3. **Fix violations** via corrective batchUpdate calls
+4. **Visual verification:** use `gws slides presentations pages getThumbnail` to download slide thumbnails as PNG and inspect them visually. This catches issues that the JSON check misses (element overlap, text truncation, visual alignment). Spot-check at minimum the title slide, one bullet slide, any chart slide, and the closing slide.
+5. **Deck-level pass:** consistent title positioning, section dividers before each topic, font/color consistency across slides, proper first/last slides, layout rhythm variety
 
-```json
-{
-  "updatePageProperties": {
-    "objectId": "slide_002",
-    "pageProperties": {
-      "pageBackgroundFill": {
-        "solidFill": {
-          "color": {"rgbColor": {"red": 0.102, "green": 0.102, "blue": 0.180}}
-        }
-      }
-    },
-    "fields": "pageBackgroundFill"
-  }
-}
-```
+Report results to the user with a summary of checks passed and any issues found.
 
-#### Adding images
+---
 
-```json
-{
-  "createImage": {
-    "objectId": "slide_007_img",
-    "url": "https://example.com/image.png",
-    "elementProperties": {
-      "pageObjectId": "slide_007",
-      "size": {
-        "width": {"magnitude": 360, "unit": "PT"},
-        "height": {"magnitude": 405, "unit": "PT"}
-      },
-      "transform": {
-        "scaleX": 1, "scaleY": 1,
-        "translateX": 360, "translateY": 0,
-        "unit": "PT"
-      }
-    }
-  }
-}
-```
+## What to Avoid
 
-Images must be publicly accessible URLs. If the user provides local files, ask them to upload to Google Drive first, then use the Drive file URL.
+- **Predefined Google layouts** — they fight your theme; build on BLANK
+- **Native `createParagraphBullets`** — the Slides API cannot color native bullet glyphs independently from text. Always use faux bullets (Unicode glyph + tab + hanging indent)
+- **Paragraphs on slides** — if it reads like a document, split it
+- **Centering body text** — hard to scan; left-align body, center only divider titles
+- **Shrinking text to fit** — split the slide instead; cramped text is never read
+- **Accent bars on bullet slides** — the bar and faux bullet glyphs collide; use accent-colored glyphs instead
+- **Gradients** — solid colors are cleaner (unless the brand specifically requires them)
+- **Duplicate object IDs** — cause silent API failures; follow the naming convention
+- **Skipping quality check** — every deck passes the checklist; use `getThumbnail` to visually verify
 
-### Phase 4: Quality Check Loop
+## Reference Files
 
-**This phase is mandatory. Never skip it.**
-
-After building each batch of 3–5 slides, and again after the full deck is complete, run this quality check:
-
-#### Step 1: Retrieve the presentation
-
-```bash
-gws slides presentations get --params '{"presentationId": "PRESENTATION_ID"}'
-```
-
-#### Step 2: Inspect every slide against the checklist
-
-For each slide, verify:
-
-**Typography:**
-- [ ] No more than 2 font sizes used
-- [ ] Title is 36–56 pt depending on layout
-- [ ] Body text is 16–18 pt
-- [ ] Font is from the approved stack
-- [ ] No ALL CAPS blocks longer than 3 words
-- [ ] Title case for titles, sentence case for body
-
-**Color:**
-- [ ] Maximum 3 colors on the slide (background + text + accent)
-- [ ] Text has sufficient contrast against background
-- [ ] Accent colors used sparingly (small shapes, highlights, not large areas)
-
-**Spacing:**
-- [ ] All content within the safe zone (0.5" from edges)
-- [ ] Body content within comfortable zone (0.75" from sides)
-- [ ] Consistent spacing between same-type elements
-- [ ] At least 40% whitespace on the slide
-
-**Content:**
-- [ ] One idea per slide
-- [ ] Maximum 6 bullet points per slide
-- [ ] Maximum 8 words per bullet point
-- [ ] No paragraphs — if it reads like a paragraph, split it
-- [ ] Slide title is 7 words or fewer
-
-**Layout:**
-- [ ] Slide uses a recognizable layout from the layout system
-- [ ] Elements are visually aligned (shared edges or center axes)
-- [ ] Visual hierarchy is clear (eye moves title → subtitle → body → detail)
-
-#### Step 3: Fix violations
-
-For any violations found, issue corrective `batchUpdate` requests. Common fixes:
-
-| Problem | Fix |
-|---------|-----|
-| Text overflows shape | Reduce font size or split slide |
-| Too many bullets | Split into two slides |
-| Content outside safe zone | Adjust transform translateX/Y |
-| Low contrast text | Change text color or background |
-| Inconsistent spacing | Recalculate transforms for even distribution |
-| Too many colors | Remove the least important accent color |
-
-#### Step 4: Final pass
-
-After all slides pass the per-slide check, do a deck-level review:
-
-- [ ] Consistent title positioning across all content slides
-- [ ] Section dividers appear before each new topic
-- [ ] Color usage is consistent throughout (same accent for same meaning)
-- [ ] Font sizes are consistent across same-role elements on different slides
-- [ ] Slide count matches the expected range for the presentation length
-- [ ] First slide is a title slide, last slide is a closing/CTA slide
-- [ ] No two adjacent slides use the same layout (vary the rhythm)
-
-Report the results to the user with a summary of what was checked and any remaining issues.
-
-## Coordinate System Reference
-
-The Slides API uses **EMU (English Metric Units)** internally, but accepts **PT (points)** which is more intuitive.
-
-| Measurement | Points | Inches |
-|-------------|--------|--------|
-| Slide width | 720 pt | 10" |
-| Slide height | 405 pt | 5.625" |
-| Safe zone inset | 36 pt | 0.5" |
-| Comfortable zone left/right | 54 pt | 0.75" |
-| Comfortable zone top | 72 pt | 1.0" |
-| Comfortable zone bottom | 43.2 pt | 0.6" |
-| Usable width (comfortable) | 612 pt | 8.5" |
-| Usable height (comfortable) | 289.8 pt | 4.025" |
-
-**Transform origin is top-left of the slide.** `translateX` moves right, `translateY` moves down.
-
-## Object ID Convention
-
-Use predictable, descriptive IDs:
-
-```
-slide_001                    # Slide itself
-slide_001_title              # Title text box
-slide_001_subtitle           # Subtitle text box
-slide_001_body               # Body text box
-slide_001_card_1_bg          # First card background shape
-slide_001_card_1_title       # First card title
-slide_001_card_1_body        # First card body text
-slide_001_accent_bar         # Decorative accent element
-slide_001_img                # Image element
-```
-
-## Common Patterns
-
-### Bullet list with proper spacing
-
-Build bullets as a single text box with newlines. Use `updateParagraphStyle` to control bullet spacing:
-
-```json
-{
-  "insertText": {
-    "objectId": "slide_003_body",
-    "text": "First point\nSecond point\nThird point"
-  }
-},
-{
-  "createParagraphBullets": {
-    "objectId": "slide_003_body",
-    "textRange": {"type": "ALL"},
-    "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE"
-  }
-},
-{
-  "updateParagraphStyle": {
-    "objectId": "slide_003_body",
-    "textRange": {"type": "ALL"},
-    "style": {
-      "spaceAbove": {"magnitude": 6, "unit": "PT"},
-      "spaceBelow": {"magnitude": 6, "unit": "PT"},
-      "lineSpacing": 150
-    },
-    "fields": "spaceAbove,spaceBelow,lineSpacing"
-  }
-}
-```
-
-### Accent bar (vertical, left of content)
-
-```json
-{
-  "createShape": {
-    "objectId": "slide_005_accent_bar",
-    "shapeType": "RECTANGLE",
-    "elementProperties": {
-      "pageObjectId": "slide_005",
-      "size": {
-        "width": {"magnitude": 4, "unit": "PT"},
-        "height": {"magnitude": 200, "unit": "PT"}
-      },
-      "transform": {
-        "scaleX": 1, "scaleY": 1,
-        "translateX": 54, "translateY": 100,
-        "unit": "PT"
-      }
-    }
-  }
-},
-{
-  "updateShapeProperties": {
-    "objectId": "slide_005_accent_bar",
-    "shapeProperties": {
-      "shapeBackgroundFill": {
-        "solidFill": {
-          "color": {"rgbColor": {"red": 0.102, "green": 0.451, "blue": 0.910}}
-        }
-      },
-      "outline": {"outlineFill": {"solidFill": {"color": {"rgbColor": {"red": 0.102, "green": 0.451, "blue": 0.910}}}}}
-    },
-    "fields": "shapeBackgroundFill,outline"
-  }
-}
-```
-
-### Content card with subtle shadow
-
-See the shapes example in Phase 3. Use surface color (`#F8F9FA`) background, 1pt border in divider color, subtle outer shadow with 0.08 alpha.
-
-## What NOT to Do
-
-- **Don't use predefined layouts** — they have ugly defaults; always use BLANK and build manually
-- **Don't dump paragraphs onto slides** — if it reads like a document, it's not a slide
-- **Don't use more than 3 colors per slide** — restraint is what separates good from bad
-- **Don't center everything** — centered body text looks amateurish; left-align body content
-- **Don't skip the quality check loop** — every deck must pass the checklist
-- **Don't use clip art, WordArt, or decorative fonts** — keep it clean and modern
-- **Don't make slides without whitespace** — 40% whitespace minimum is a hard rule
-- **Don't use tiny text to cram more in** — split the slide instead
-- **Don't use gradients unless the user's brand requires them** — solid colors are cleaner
-- **Don't forget to validate object IDs are unique** — duplicate IDs cause silent failures
-- **Don't send more than ~20 requests per batchUpdate** — batch in groups of 3–5 slides
+Read these during slide construction as needed:
+- `references/api-patterns.md` — JSON examples for all batchUpdate operations, image upload pipeline, coordinate system
+- `references/layouts.md` — All 10 standard layouts with positioning details
