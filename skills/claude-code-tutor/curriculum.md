@@ -298,6 +298,10 @@ npx skills add username/repo/skill-name
 
 ### Key Skills to Know
 
+These are all **third-party skills** you install — they're not built into
+Claude Code. Install them with `npx skills add <repo>` (see "Installing
+Skills" below).
+
 | Skill | What It Does | When to Use It |
 |-------|-------------|----------------|
 | agent-browser | Headless browser automation | Testing, debugging, screenshots, scraping |
@@ -751,6 +755,10 @@ Even if you don't deploy, Claude's analysis of the current setup is useful.
 ---
 
 ## C1: Research & Recall
+
+> **Prerequisite:** `/recall` is a third-party skill, not built into Claude
+> Code. Install it with `npx skills add arjunkmrm/recall` before starting
+> this module.
 
 ### Key Concept
 
