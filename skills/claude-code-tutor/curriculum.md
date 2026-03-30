@@ -296,34 +296,31 @@ npx skills add username/repo
 npx skills add username/repo/skill-name
 ```
 
-### Key Skills to Know
+### Recommended Starting Skills
 
-These are all **third-party skills** you install — they're not built into
-Claude Code. Install them with `npx skills add <repo>` (see "Installing
-Skills" below).
+The skill ecosystem is large and growing — use `/find-skills` to discover
+what's available for your workflows. That said, these four are strong
+starting recommendations:
 
-| Skill | What It Does | When to Use It |
-|-------|-------------|----------------|
-| agent-browser | Headless browser automation | Testing, debugging, screenshots, scraping |
-| agent-screencast | Record narrated video demos | PR evidence, feature demos, documentation |
-| recall | Search past sessions | Finding previous work, decisions, analysis |
-| frontend-design | High-quality UI generation | Landing pages, dashboards, components |
-| clone-website | Clone any website to code | Rebuilding sites with a modern stack |
-| lucida / gws-slides | Create presentations | Decks, reports, board presentations |
-| ticks | Issue tracking + AI agents | Breaking specs into tasks, running agents on work items |
-| find-skills | Discover new skills | When you need a capability you don't have yet |
-| simplify | Code quality review | Post-implementation cleanup and optimization |
-| tdd | Test-driven development | Building features test-first with red-green-refactor |
-| skill-creator | Create and improve skills | Building custom skills for your workflows |
+| Skill | Install | What It Does |
+|-------|---------|-------------|
+| find-skills | `npx skills add anthropic/skills` | Discover and install new skills — your gateway to everything else |
+| agent-browser | `npx skills add anthropic/skills` | Headless browser automation for testing, screenshots, scraping |
+| recall | `npx skills add arjunkmrm/recall` | Search your past Claude Code sessions as institutional memory |
+| modern-python | `npx skills add pengelbrecht/skills` | Modern Python project setup with uv, ruff, and ty |
+
+Beyond these, build your toolkit based on what you actually do. A frontend
+developer might install `frontend-design` and `tdd`. Someone doing data
+work might want presentation and analysis skills. Use `/find-skills` to
+explore — that's what it's there for.
 
 ### Invoking Skills
 
 Prefix with `/`:
 ```
-/clone-website www.example.com
-/agent-screencast record a demo of the dashboard
+/find-skills browser automation
 /recall that authentication discussion from last week
-/simplify
+/agent-browser screenshot localhost:3000
 ```
 
 ### Exercise
