@@ -174,7 +174,16 @@ Projectors and screens crop edges unpredictably, so content needs safe zones:
 | Zone | Inset | What goes here |
 |------|-------|----------------|
 | Safe zone | 36 pt (0.5") all edges | Absolute boundary — nothing outside |
-| Comfortable zone | 54 pt sides, 72 pt top, 43 pt bottom | Body content lives here |
+| Comfortable zone | 54 pt sides, 43 pt bottom | Body content lives here |
+
+**Two title positions** — choose based on content density:
+
+| Mode | Title `translateY` | When to use |
+|------|-------------------|-------------|
+| **Standard** | 54 pt (0.75") | Light slides: ≤4 bullet items, title+body, quote, big number |
+| **Dense** | 36 pt (0.5") | Heavy slides: >4 bullet items (L1+L2 combined), chart, terminal, grid, two-column |
+
+Use dense mode whenever you need the vertical space. Standard mode aligns the title with the side margins (54pt all around). Dense mode pushes the title to the safe zone edge (36pt), maximizing content area for complex slides.
 
 **At least 40% whitespace.** Projected slides are viewed at distance in low-attention environments. Density kills comprehension. If content exceeds 70% of the slide area, split into two slides. The audience absorbs two clean slides faster than one cramped one.
 

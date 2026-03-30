@@ -2,7 +2,7 @@
 
 Every slide uses exactly one of these 10 layouts. Consistent structure helps the audience focus on content rather than figuring out where to look next.
 
-All positions use comfortable-zone coordinates (left margin at 54 pt, top at 72 pt) unless noted otherwise.
+All positions use comfortable-zone coordinates (left margin at 54 pt). Title top position depends on mode: **standard** at 54 pt for light slides, **dense** at 36 pt for heavy slides (chart, terminal, grid, two-column, >4 bullets).
 
 ---
 
@@ -164,3 +164,40 @@ The last slide. Similar structure to the title slide but forward-looking.
 
 **Positioning guide:**
 - Same as Title Slide, with headline replacing the title and supporting text replacing the subtitle
+
+## 11. Terminal / CLI
+
+For technical presentations showing CLI commands, API calls, or code. Uses dense title positioning.
+
+- **Background:** White (standard slide background — not dark)
+- **Title:** Normal theme styling (dark text on white), dense position (translateY: 36)
+- **Terminal card:** A dark rectangle with window chrome bar and syntax-colored monospace text
+- **Window chrome:** Thin dark bar (22pt tall) across the top of the card with three small dots (●●●) in muted gray — gives the "terminal window" feel
+- **Code area:** Dark rectangle below chrome, filled with monospace text (theme `font.mono`)
+
+**Syntax color scheme for code:**
+| Element | Color | Example |
+|---------|-------|---------|
+| `$` prompt | Green (#34C759) | `$` |
+| Command name | White, bold | `lore query` |
+| Flags | Accent primary (#0891B2) | `--org` |
+| Flag values | Light accent (#A5F3FC) | `acme` |
+| Strings | Amber (#F59E0B) | `"SELECT ..."` |
+| Output text | Muted gray (#959AA6) | table data |
+| Table dividers | Dim gray (#4D5360) | `──────` |
+| Success markers | Green (#34C759) | `✓` |
+
+**Positioning guide (dense mode):**
+- Title: (54, 36), width 612 pt
+- Chrome bar: (54, 130), width 612 pt, height 22 pt, dark fill (#262833)
+- Dots: (62, 132), small text `● ● ●` at 7pt in muted gray
+- Code area: (54, 152), width 612 pt, height 235 pt, dark fill (#191D28)
+- Code text: (74, 162), width 572 pt, monospace 11pt, lineSpacing 150
+
+**Construction order:** chrome bar → dots text box → code area background → code text box (z-index follows creation order).
+
+**Content guidelines:**
+- Keep commands short enough to not wrap at 11pt monospace on 572pt width (~65 characters)
+- Two commands with output is a good density — more than three gets cramped
+- Use blank lines (`\n\n`) to separate command/output blocks
+- Color each element with `FIXED_RANGE` targeting — this requires tracking character indices

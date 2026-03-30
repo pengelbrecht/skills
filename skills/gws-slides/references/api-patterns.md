@@ -336,44 +336,11 @@ A thin vertical rectangle left of content, in the theme's accent_primary color. 
 
 ## Content Cards
 
-Combine a surface-colored rectangle with subtle shadow for a polished card effect:
+Use a surface-colored rectangle with a thin border for a clean card effect:
 
-```json
-{
-  "updateShapeProperties": {
-    "objectId": "slide_003_card_bg",
-    "shapeProperties": {
-      "shapeBackgroundFill": {
-        "solidFill": {
-          "color": {"rgbColor": {"red": 0.973, "green": 0.976, "blue": 0.980}}
-        }
-      },
-      "outline": {
-        "outlineFill": {
-          "solidFill": {
-            "color": {"rgbColor": {"red": 0.855, "green": 0.859, "blue": 0.878}}
-          }
-        },
-        "weight": {"magnitude": 1, "unit": "PT"}
-      },
-      "shadow": {
-        "type": "OUTER",
-        "blurRadius": {"magnitude": 8, "unit": "PT"},
-        "color": {"rgbColor": {"red": 0, "green": 0, "blue": 0}},
-        "alpha": 0.08,
-        "transform": {
-          "scaleX": 1, "scaleY": 1,
-          "translateX": 0, "translateY": 2,
-          "unit": "PT"
-        }
-      }
-    },
-    "fields": "shapeBackgroundFill,outline,shadow"
-  }
-}
-```
+Use theme `surface` color for the background and `divider` color for the 1pt border. See the Shapes and Rectangles section above for the JSON pattern.
 
-Use `surface` color for the background and `divider` color for the border. The shadow is subtle (0.08 alpha, 2pt Y offset) — enough to lift the card without looking dated.
+> **Note:** The Slides API's shadow property (`shapeProperties.shadow`) is read-only — `propertyState` cannot be set to `RENDERED` via the API. Shadows can only be added manually in the Google Slides UI after generation.
 
 ## Full-Bleed Image with Scrim
 
@@ -468,7 +435,16 @@ fig.patch.set_facecolor('white')
 plt.savefig('chart.png', dpi=144, facecolor='white', bbox_inches='tight')
 ```
 
-After saving, upload via the Drive pipeline (see below) and insert with `createImage`. Leave room for a title above and an optional caption below — don't let the chart fill the entire slide.
+After saving, upload via the Drive pipeline (see below) and insert with `createImage`.
+
+**Positioning charts to avoid overlap — calculate before placing:**
+1. Title bottom = title `translateY` + title height (e.g., 36 + 50 = 86pt)
+2. Chart top = title bottom + M spacing (25pt) → e.g., 111pt
+3. Caption top = must be BELOW chart bottom: chart `translateY` + chart height + 10pt gap
+4. Caption bottom must stay within safe zone (< 405 - 36 = 369pt)
+5. Available chart height = caption top - chart top. Work backwards: if caption needs 25pt and starts at 345pt, chart height = 345 - 111 = 234pt max.
+
+Always verify: no element's bounding box (`translateY` to `translateY + height`) overlaps with another's. Charts and captions are the most common overlap — calculate positions arithmetically before placing, don't eyeball.
 
 ## Uploading Images
 
@@ -570,10 +546,12 @@ The Slides API accepts **PT (points)**, which maps cleanly to inches (72 pt = 1"
 | Slide height | 405 pt | 5.625" |
 | Safe zone inset | 36 pt | 0.5" |
 | Comfortable zone left/right | 54 pt | 0.75" |
-| Comfortable zone top | 72 pt | 1.0" |
 | Comfortable zone bottom | 43 pt | 0.6" |
+| Title Y — standard | 54 pt | 0.75" | Light slides (≤4 bullets, quote, big number) |
+| Title Y — dense | 36 pt | 0.5" | Heavy slides (>4 bullets, chart, terminal, grid) |
 | Usable width (comfortable) | 612 pt | 8.5" |
-| Usable height (comfortable) | 290 pt | 4.0" |
+| Usable height (standard) | 308 pt | 4.3" |
+| Usable height (dense) | 326 pt | 4.5" |
 
 **Transform origin is top-left.** `translateX` increases rightward, `translateY` increases downward.
 
