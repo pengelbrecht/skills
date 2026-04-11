@@ -110,16 +110,22 @@ The goal is unambiguous requirements before any planning begins.
 2. Investigate the codebase — read key files, understand the stack, identify
    constraints. Delegate deep investigation to subagents to keep your own
    context lean.
-3. Ask clarifying questions. Push for specifics on:
+3. Ask clarifying questions using the **AskUserQuestion** tool. Push for
+   specifics on:
    - Scope boundaries (what's in, what's explicitly out)
    - Success criteria (how will we know it's done?)
    - Constraints (tech stack, existing patterns, performance requirements)
    - Dependencies (external services, APIs, existing code that must not break)
-4. Summarize the requirements back to the user and get explicit confirmation
-   before proceeding.
+   Use AskUserQuestion for each clarification round rather than dumping all
+   questions inline. This ensures the user sees a focused prompt and you get
+   a clear answer before moving on.
+4. Summarize the requirements back to the user (via AskUserQuestion) and get
+   explicit confirmation before proceeding.
 
 **Key rule:** Do NOT start planning until the user confirms the requirements
-are correct and complete.
+are correct and complete. Use AskUserQuestion to gate every transition between
+phases — intake to contract, contract to decomposition, decomposition to
+execution.
 
 ---
 
@@ -152,8 +158,10 @@ See `references/contract-format.md` for the full schema and
 ### Process
 
 1. Draft the contract based on confirmed requirements.
-2. Present it to the user. Ask: "Does this fully capture what 'done' means?"
-3. Iterate until the user approves.
+2. Present it to the user via **AskUserQuestion**: "Does this fully capture
+   what 'done' means? Should any assertions be added, removed, or revised?"
+3. Iterate until the user approves. Each revision round uses AskUserQuestion
+   to present the updated contract and ask for confirmation.
 4. Write the approved contract to the mission directory.
 
 ---
@@ -191,7 +199,8 @@ proceed to the next milestone until the current one passes validation.
 1. Draft features and milestones based on the contract and requirements.
 2. For each feature, note which contract assertions it satisfies. Every
    assertion must be claimed by at least one feature.
-3. Present the plan to the user for approval.
+3. Present the plan to the user via **AskUserQuestion** for approval.
+   Include the milestone structure, feature list, and parallelism decisions.
 4. Write `features.json` and `plan.yaml` to the mission directory.
 
 See `references/plan-format.md` for the file schemas.
@@ -280,7 +289,9 @@ After each worker completes, if it made changes:
 mission_merge <mission-dir> <branch-name>
 ```
 
-If merge conflicts occur, resolve them or escalate to the user.
+If merge conflicts occur, attempt to resolve them. If resolution requires
+human judgment, use **AskUserQuestion** to present the conflict and ask
+the user how to proceed.
 
 #### 5c. Update status
 
@@ -352,12 +363,15 @@ If something blocks that the system can't resolve:
 - External dependencies that are unavailable
 
 **Stop the mission**, preserve all state (status.yaml reflects exactly where
-things stand), and present the blocker to the user with:
+things stand), and use **AskUserQuestion** to present the blocker:
 
 1. What was attempted
 2. Why it failed
 3. What the user needs to decide or provide
 4. How to resume once the blocker is resolved
+
+AskUserQuestion is essential here — it pauses execution and waits for the
+user's input before continuing. Do not attempt to work around the blocker.
 
 ---
 
