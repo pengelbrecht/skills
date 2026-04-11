@@ -146,7 +146,7 @@ async def generate_segment_audio(
         srt_file.write(submaker.get_srt())
 
     duration = get_audio_duration(str(audio_path))
-    return str(audio_path), str(srt_path), int(duration * 1000)
+    return str(audio_path), str(srt_path), round(duration * 1000)
 
 
 async def generate_all_narration(script: Script, output_dir: Path) -> Script:
@@ -647,18 +647,36 @@ def run_pipeline(
                 f"--skip-recording requires {raw_video} to exist. Run recording first."
             )
         print("Reusing existing recording.")
-        # Rebuild a simple manifest from audio durations (no real timing data)
-        offset = 0
-        manifest = []
-        for seg in script.segments:
-            dur = seg.duration_ms or 0
-            manifest.append(TimingEntry(
-                segment_id=seg.id,
-                video_start_ms=offset,
-                video_end_ms=offset + dur,
-                audio_duration_ms=dur,
-            ))
-            offset += dur
+        # Load the real timing manifest saved during the original recording.
+        # Falling back to audio-duration estimates only if no manifest exists.
+        manifest_path = work_dir / "timing-manifest.json"
+        if manifest_path.exists():
+            with open(manifest_path) as f:
+                manifest_data = json.load(f)
+            manifest = [
+                TimingEntry(
+                    segment_id=e["segment_id"],
+                    video_start_ms=e["video_start_ms"],
+                    video_end_ms=e["video_end_ms"],
+                    audio_duration_ms=e["audio_duration_ms"],
+                )
+                for e in manifest_data
+            ]
+            print(f"  Loaded timing manifest from {manifest_path}")
+        else:
+            print("  WARNING: No timing manifest found — using audio-duration estimates.")
+            print("  Audio/subtitle sync may be inaccurate. Re-record for precise timing.")
+            offset = 0
+            manifest = []
+            for seg in script.segments:
+                dur = seg.duration_ms or 0
+                manifest.append(TimingEntry(
+                    segment_id=seg.id,
+                    video_start_ms=offset,
+                    video_end_ms=offset + dur,
+                    audio_duration_ms=dur,
+                ))
+                offset += dur
 
     print("\n[3/3] Assembling final video...")
     assemble_video(script, raw_video, output_path, work_dir, manifest)
