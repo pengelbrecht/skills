@@ -21,6 +21,7 @@ session/
 *.mp4
 *.webm
 *.mp3
+*.wav
 *.srt
 
 # Lock files
