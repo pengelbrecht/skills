@@ -1,0 +1,68 @@
+[
+  {
+    "id": "F1",
+    "milestone": "M1",
+    "name": "Database schema and Prisma setup",
+    "description": "Initialize Prisma with SQLite. Create User model (id, email unique, password_hash, created_at, updated_at) and Task model (id, title, description nullable, status enum pending/in_progress/completed, user_id FK, created_at, updated_at). Generate and apply migration.",
+    "assertions": ["A1", "A8"],
+    "dependencies": [],
+    "files_hint": ["prisma/schema.prisma", "prisma/migrations/", "package.json"],
+    "status": "pending",
+    "type": "implementation"
+  },
+  {
+    "id": "F2",
+    "milestone": "M1",
+    "name": "Auth endpoints — register and login",
+    "description": "Create POST /api/auth/register (hash password with bcrypt, create user, return 201 with user object, 409 on duplicate email). Create POST /api/auth/login (verify password, return JWT with user_id in payload, 401 on invalid credentials). Add auth middleware that verifies JWT and attaches user to request.",
+    "assertions": ["A1", "A2", "A3"],
+    "dependencies": ["F1"],
+    "files_hint": ["src/routes/auth.ts", "src/middleware/auth.ts", "src/lib/jwt.ts"],
+    "status": "pending",
+    "type": "implementation"
+  },
+  {
+    "id": "F3",
+    "milestone": "M2",
+    "name": "Create task endpoint",
+    "description": "Create POST /api/tasks. Requires auth. Accepts { title: string, description?: string }. Creates task with status 'pending' owned by authenticated user. Returns 201 with task object.",
+    "assertions": ["A4"],
+    "dependencies": [],
+    "files_hint": ["src/routes/tasks.ts"],
+    "status": "pending",
+    "type": "implementation"
+  },
+  {
+    "id": "F4",
+    "milestone": "M2",
+    "name": "List tasks endpoint",
+    "description": "Create GET /api/tasks. Requires auth. Returns only the authenticated user's tasks. Supports pagination via ?page=N&limit=N query params (default page=1, limit=20). Returns { data: Task[], pagination: { page, limit, total } }.",
+    "assertions": ["A5"],
+    "dependencies": [],
+    "files_hint": ["src/routes/tasks.ts"],
+    "status": "pending",
+    "type": "implementation"
+  },
+  {
+    "id": "F5",
+    "milestone": "M2",
+    "name": "Update and delete task endpoints",
+    "description": "Create PATCH /api/tasks/:id for status updates. Accepts { status: 'in_progress' | 'completed' }. Returns 200 with updated task, 400 for invalid status, 403 if not owner, 404 if not found. Create DELETE /api/tasks/:id. Returns 204 on success, 403 if not owner, 404 if not found.",
+    "assertions": ["A6", "A7"],
+    "dependencies": [],
+    "files_hint": ["src/routes/tasks.ts"],
+    "status": "pending",
+    "type": "implementation"
+  },
+  {
+    "id": "F6",
+    "milestone": "M2",
+    "name": "Health endpoint",
+    "description": "Create GET /api/health that returns { status: 'ok' } with 200. Verify the dev server starts cleanly with no errors.",
+    "assertions": ["A8"],
+    "dependencies": [],
+    "files_hint": ["src/routes/health.ts", "src/index.ts"],
+    "status": "pending",
+    "type": "implementation"
+  }
+]
