@@ -296,6 +296,21 @@ uv run <skill-dir>/agent-screencast.py demo-script.json -o feature-demo.mp4 --se
 # 5. Output: feature-demo.mp4 with narration + subtitles
 ```
 
+## Git
+
+The pipeline generates large binary intermediates (audio, video, screenshots).
+Add these to the project's `.gitignore` before running:
+
+```gitignore
+# agent-screencast intermediates and output
+session/
+*.mp4
+*.webm
+*.mp3
+*.wav
+*.srt
+```
+
 ## Subtitle note
 
 If ffmpeg has libass support, subtitles are burned into the video. Otherwise
