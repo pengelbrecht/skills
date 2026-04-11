@@ -62,3 +62,27 @@
 - **Method**: cli-check
 - **Evidence**: Server process starts. `curl http://localhost:3000/api/health`
   returns `{ status: "ok" }`.
+
+## A9: Login page renders and authenticates
+
+- **Behavior**: The login page loads at `/login`. A user can enter email and
+  password, click "Sign In", and is redirected to the dashboard on success.
+  Invalid credentials show an inline error message.
+- **Method**: browser-agent
+- **Evidence**: Screenshot of login form rendered. Screenshot of dashboard after
+  successful login. Screenshot of error message after invalid credentials.
+
+## A10: Task management flow works end-to-end
+
+- **Behavior**: A logged-in user can create a task from the dashboard, see it
+  appear in the task list, mark it as completed, and delete it — all via the UI.
+- **Method**: agent-screencast
+- **Evidence**: Narrated video showing the full create → list → complete → delete
+  flow. Each step is visible in the recording with transitions between states.
+
+## A11: Environment config uses expected schema
+
+- **Behavior**: The `.env.example` file contains all required environment
+  variables (DATABASE_URL, JWT_SECRET, PORT) with placeholder values.
+- **Method**: code-review
+- **Evidence**: `.env.example` exists and contains the three required variables.

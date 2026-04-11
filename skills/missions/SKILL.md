@@ -149,7 +149,7 @@ Create `validation-contract.md` in the mission directory. Each assertion has:
 |-------|-------------|
 | **ID** | Unique identifier (A1, A2, ...) |
 | **Behavior** | One-sentence behavioral description from the user's perspective |
-| **Method** | How to verify — `test-runner`, `browser-agent`, `manual`, `cli-check` |
+| **Method** | How to verify — `test-runner`, `cli-check`, `browser-agent`, `agent-screencast`, `code-review`, `manual` |
 | **Evidence** | What constitutes proof — passing tests, screenshots, specific output |
 
 See `references/contract-format.md` for the full schema and

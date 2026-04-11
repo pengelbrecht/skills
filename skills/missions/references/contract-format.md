@@ -17,16 +17,37 @@ Each assertion follows this structure:
 - **Method**: <How this assertion will be verified>
   - `test-runner` — Run automated tests (unit, integration, e2e)
   - `cli-check` — Execute a CLI command and check output
-  - `browser-agent` — Launch a browser agent to interact with UI
+  - `browser-agent` — Use Vercel's `agent-browser` to navigate UI, click through flows, and take screenshots
+  - `agent-screencast` — Record a narrated video walkthrough of UI flows using the agent-screencast skill
   - `code-review` — A validator reads the code and confirms
   - `manual` — Requires human verification (last resort)
 - **Evidence**: <What constitutes proof of correctness>
   - Passing test names/suites
   - Expected HTTP status codes or response shapes
   - Screenshots of specific UI states
+  - Recorded video of a multi-step UI flow
   - CLI output matching a pattern
   - Specific files existing with expected content
 ```
+
+## Choosing the Right Method
+
+Pick the method that gives the **strongest evidence with the least ambiguity**
+for each assertion. Use this decision order:
+
+| If the assertion is about… | Prefer | Why |
+|---|---|---|
+| API behavior, data logic, auth, validation rules | `test-runner` | Deterministic, fast, repeatable. The gold standard when tests can cover the behavior. |
+| A running process, build output, or env config | `cli-check` | Some things aren't unit-testable — server startup, CLI output, health checks. Run the command and check stdout/stderr. |
+| A single UI state or interaction (login form works, button appears) | `browser-agent` | Uses Vercel's `agent-browser` to navigate, click, and screenshot. Best for verifying specific UI states or short interaction flows. |
+| A multi-step UI flow (onboarding wizard, drag-and-drop reorder, complex dashboard interaction) | `agent-screencast` | Records a narrated video walkthrough using the agent-screencast skill. Captures temporal flows that a single screenshot can't prove — transitions, animations, multi-page sequences. |
+| Internal structure (config shape, file existence, code conventions) | `code-review` | When the assertion is about what the code IS, not what it DOES. The validator reads source files directly. |
+| Physical devices, third-party services, subjective quality | `manual` | Last resort. Use only when no automated method can verify the assertion. |
+
+**Bias check:** Don't default everything to `test-runner`. API-only projects
+will naturally be test-heavy, but projects with significant UI surface area
+should use `browser-agent` and `agent-screencast` for UI assertions. A passing
+test suite doesn't prove the UI actually renders correctly.
 
 ## Rules
 
