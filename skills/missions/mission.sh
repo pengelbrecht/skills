@@ -37,6 +37,61 @@ _today() {
 }
 
 # ---------------------------------------------------------------------------
+# mission_preflight [scope] — Check that required tools are installed
+#   scope: (none) = core only, "browser-agent", "agent-screencast", "all"
+# ---------------------------------------------------------------------------
+
+mission_preflight() {
+  local scope="${1:-core}"
+  local ok=true
+
+  _check_cmd() {
+    local cmd="$1"
+    local install_hint="$2"
+    if command -v "$cmd" &>/dev/null; then
+      printf "  ✓ %-20s found\n" "$cmd"
+    else
+      printf "  ✗ %-20s MISSING — install: %s\n" "$cmd" "$install_hint"
+      ok=false
+    fi
+  }
+
+  echo "=== Mission Preflight Check ==="
+  echo ""
+
+  # --- Core (always checked) ---
+  echo "Core tools:"
+  _check_cmd git "https://git-scm.com/downloads"
+  _check_cmd yq "brew install yq  OR  pip install yq"
+  echo ""
+
+  # --- browser-agent ---
+  if [[ "$scope" == "browser-agent" || "$scope" == "agent-screencast" || "$scope" == "all" ]]; then
+    echo "browser-agent validation:"
+    _check_cmd agent-browser "npm i -g agent-browser && agent-browser install"
+    echo ""
+  fi
+
+  # --- agent-screencast ---
+  if [[ "$scope" == "agent-screencast" || "$scope" == "all" ]]; then
+    echo "agent-screencast validation:"
+    _check_cmd agent-browser "npm i -g agent-browser && agent-browser install"
+    _check_cmd ffmpeg "brew install ffmpeg  OR  apt install ffmpeg"
+    _check_cmd uv "curl -LsSf https://astral.sh/uv/install.sh | sh"
+    echo ""
+  fi
+
+  if $ok; then
+    echo "All required tools available."
+  else
+    echo "Some tools are missing. Install them before running the mission."
+    return 1
+  fi
+
+  unset -f _check_cmd
+}
+
+# ---------------------------------------------------------------------------
 # mission_next_id — Get the next sequential mission number
 # ---------------------------------------------------------------------------
 
