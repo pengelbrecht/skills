@@ -54,6 +54,8 @@ correctness is judged by separate validators who never saw the implementation.
 
 ## Prerequisites
 
+### Shell library
+
 The `mission.sh` shell library must be sourced before any mission operations.
 It lives alongside this SKILL.md:
 
@@ -67,9 +69,58 @@ Or Claude Code can source it directly:
 source /path/to/skills/missions/mission.sh
 ```
 
-Required tools: `git`, `yq` (for YAML parsing — install via `brew install yq`
-or `pip install yq`). If `yq` is not available, fall back to parsing YAML
-manually in bash or have Claude read the files directly.
+### Dependencies
+
+Missions uses different tools depending on which validation methods your
+contract requires. Install only what you need.
+
+#### Core (always required)
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| `git` | Version control, worktree isolation for workers | Pre-installed on most systems |
+| `yq` | YAML parsing for status/plan files | `brew install yq` or `pip install yq`. If unavailable, fall back to manual parsing or have Claude read files directly. |
+
+#### For `browser-agent` validation method
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| `agent-browser` | Vercel's browser automation — navigates UI, clicks through flows, takes screenshots | `npm i -g agent-browser && agent-browser install` |
+
+The `agent-browser install` step downloads a bundled Chromium browser. Run it
+once after the npm install.
+
+#### For `agent-screencast` validation method
+
+The `agent-screencast` validation method uses the **agent-screencast** skill to
+record narrated video walkthroughs. It has its own dependency chain:
+
+| Tool / Skill | Purpose | Install |
+|--------------|---------|---------|
+| **agent-screencast** skill | Orchestrates the recording pipeline | `npx skills add pengelbrecht/skills --skill agent-screencast` |
+| `agent-browser` | Browser automation (shared with `browser-agent` method) | `npm i -g agent-browser && agent-browser install` |
+| `ffmpeg` | Video/audio assembly | `brew install ffmpeg` or `apt install ffmpeg` |
+| `uv` | Python package runner (handles edge-tts automatically) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+
+No separate Python install step is needed — `uv run` resolves edge-tts and
+other Python dependencies automatically via inline script metadata.
+
+### Preflight check
+
+Before starting a mission, run the preflight check to verify that required
+tools are available:
+
+```bash
+source /path/to/skills/missions/mission.sh
+mission_preflight                    # checks core tools only
+mission_preflight browser-agent      # also check browser-agent deps
+mission_preflight agent-screencast   # also check screencast deps
+mission_preflight all                # check everything
+```
+
+The orchestrator should run `mission_preflight` during **Phase 4 (Shared State
+Setup)** after determining which validation methods the contract uses. If any
+dependency is missing, the preflight output shows the exact install command.
 
 ---
 
@@ -243,6 +294,19 @@ mission_init "add-auth"
 # Creates: ./missions/001-add-auth/ with subdirectories
 ```
 
+### Dependency preflight
+
+Determine which validation methods the contract uses, then run the preflight
+check to ensure all required tools are installed before execution begins:
+
+```bash
+mission_preflight all   # or: browser-agent, agent-screencast
+```
+
+If any tools are missing, show the user the install commands from the preflight
+output and use **AskUserQuestion** to confirm they've been installed before
+proceeding to Phase 5.
+
 ---
 
 ## Phase 5: Execution
@@ -404,6 +468,7 @@ mission_list
 
 | Command | Description |
 |---------|-------------|
+| `mission_preflight [scope]` | Check tool dependencies (`core`, `browser-agent`, `agent-screencast`, `all`) |
 | `mission_init <slug>` | Create new mission directory |
 | `mission_list` | List all missions with status |
 | `mission_status <dir>` | Show detailed progress for a mission |

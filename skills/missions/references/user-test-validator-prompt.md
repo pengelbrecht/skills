@@ -121,8 +121,8 @@ Depending on the assertion's `method` field:
 |--------|-------------------------------|
 | `test-runner` | Run `npm test`, `pytest`, or the project's test command. Check for assertion-specific test names passing. |
 | `cli-check` | Execute the specified CLI command. Check stdout/stderr against expected patterns. |
-| `browser-agent` | Use Vercel's `agent-browser` (install: `npm i -g agent-browser`) to navigate the UI, click through flows, and take screenshots of specific states. Best for verifying single UI states or short interactions. |
-| `agent-screencast` | Use the agent-screencast skill to record a narrated video walkthrough of multi-step UI flows. Produces an MP4 with captions showing the flow end-to-end. Best for temporal sequences (wizards, drag-and-drop, multi-page flows) that a single screenshot can't capture. |
+| `browser-agent` | Use Vercel's `agent-browser` to navigate the UI, click through flows, and take screenshots of specific states. Best for verifying single UI states or short interactions. See SKILL.md Prerequisites for install instructions. |
+| `agent-screencast` | Use the agent-screencast skill to record a narrated video walkthrough of multi-step UI flows. Produces an MP4 with captions showing the flow end-to-end. Best for temporal sequences (wizards, drag-and-drop, multi-page flows) that a single screenshot can't capture. See SKILL.md Prerequisites for install instructions. |
 | `code-review` | Read specific files and verify structural assertions (e.g., "config file contains X"). |
 | `manual` | Report as "BLOCKED — requires manual verification" and describe what the human should check. |
 
