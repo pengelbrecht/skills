@@ -11,7 +11,8 @@ Two files define the mission plan: `plan.yaml` for structure and ordering,
 mission: "add-auth"               # slug
 id: 1                             # sequential ID
 created: "2026-04-11"
-base_branch: "main"               # git branch this mission builds on
+parent_branch: "main"             # branch this mission was created from (merge target)
+mission_branch: "mission/001-add-auth"  # branch where all mission work lives
 status: planning                  # planning | executing | validating | completed | blocked
 
 milestones:
@@ -37,7 +38,8 @@ milestones:
 | `mission` | yes | Slug identifier |
 | `id` | yes | Sequential number |
 | `created` | yes | ISO date |
-| `base_branch` | yes | Git branch to build on |
+| `parent_branch` | yes | Branch this mission was created from (PR/merge target) |
+| `mission_branch` | yes | Branch where all mission work lives (`mission/<id>-<slug>`) |
 | `status` | yes | Overall mission status |
 | `milestones` | yes | Ordered list of milestones |
 | `milestones[].id` | yes | Unique ID (M1, M2, ...) |

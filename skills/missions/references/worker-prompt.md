@@ -1,8 +1,9 @@
 # Worker Prompt Template
 
-This template defines what goes into a worker agent's prompt — and critically,
-what stays OUT. Context isolation is the single most important property of a
-well-functioning worker.
+A "worker" is an `Agent()` subagent call with `isolation: "worktree"` — not a
+special system concept. This template defines what goes into the agent's
+prompt — and critically, what stays OUT. Context isolation is the single most
+important property of a well-functioning worker agent.
 
 ---
 

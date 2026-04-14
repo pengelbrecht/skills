@@ -241,7 +241,13 @@ learnings as milestones complete.
 source /path/to/skills/missions/mission.sh
 mission_init "add-auth"
 # Creates: ./missions/001-add-auth/ with subdirectories
+# Creates and checks out branch: mission/001-add-auth
 ```
+
+**Note:** `mission_init` creates a dedicated `mission/<id>-<slug>` branch off
+the current branch. All mission work happens on this branch. The parent branch
+(e.g. `main`) is recorded in `plan.yaml` so the mission can be merged or PR'd
+back when complete.
 
 ---
 
@@ -252,42 +258,65 @@ improvise during execution.
 
 ### For each milestone
 
-#### 5a. Launch workers for each feature
+#### 5a. Launch agents for each feature
 
-For each feature in the milestone, construct a worker prompt and launch an
-agent. Use `isolation: "worktree"` so each worker gets a clean git worktree.
+Each feature is implemented by a separate `Agent()` tool call with
+`isolation: "worktree"`. The skill calls these "workers" — that's just a role
+label, not a special system concept. A worker is an Agent subagent.
 
-**Worker prompt construction** (see `references/worker-prompt.md` for template):
+**Prompt construction** (see `references/worker-prompt.md` for template):
 
 1. Include the feature spec from `features.json` (description, assertions,
    file hints)
 2. Include `AGENTS.md` (procedures and guardrails)
 3. Include relevant knowledge files from previous milestones
-4. Instruct the worker to write tests FIRST, then implement
-5. Instruct the worker to commit its work with a clear message
+4. Instruct the agent to write tests FIRST, then implement
+5. Instruct the agent to commit its work with a clear message
 
-**Parallelism:** If features within a milestone have no dependencies on each
-other, launch multiple Agent calls in a single message. Use `model: "sonnet"`
-for workers unless the feature requires complex reasoning.
+**Running features in parallel:** If features within a milestone have no
+dependencies on each other, call multiple `Agent()` tools in a **single
+response message**. Claude Code runs all Agent calls from one message
+concurrently. Use `model: "sonnet"` unless the feature requires complex
+reasoning.
+
+Example — launching two independent features in parallel (both Agent calls
+in the same response):
 
 ```
+// Call 1 (in the same response)
 Agent(
-  description: "Worker: <feature-name>",
+  description: "Feature F1: user model",
   isolation: "worktree",
   model: "sonnet",
-  prompt: <constructed worker prompt>
+  prompt: <constructed prompt for F1>
+)
+
+// Call 2 (in the same response — runs concurrently with Call 1)
+Agent(
+  description: "Feature F2: auth middleware",
+  isolation: "worktree",
+  model: "sonnet",
+  prompt: <constructed prompt for F2>
 )
 ```
+
+**Sequential features:** If a feature depends on another (`dependencies` is
+non-empty), wait for the dependency to complete and merge before launching
+the dependent feature.
 
 #### 5b. Merge completed worktrees
 
 After each worker completes, if it made changes:
 - The Agent tool returns the worktree branch name
-- Merge the branch back to the working branch:
+- Merge the worker's branch back to the **mission branch**:
 
 ```bash
 mission_merge <mission-dir> <branch-name>
 ```
+
+Workers always merge into the mission branch (`mission/<id>-<slug>`), never
+directly into the parent branch. This keeps all mission work isolated until
+the full mission is validated and ready.
 
 If merge conflicts occur, attempt to resolve them. If resolution requires
 human judgment, use **AskUserQuestion** to present the conflict and ask
@@ -375,6 +404,30 @@ user's input before continuing. Do not attempt to work around the blocker.
 
 ---
 
+## Phase 9: Finalize
+
+Once the full mission passes validation (all milestones complete), merge the
+mission branch back to the parent branch or open a PR:
+
+### Option A: Open a PR (recommended)
+
+```bash
+mission_pr <mission-dir>
+# Pushes mission branch, opens PR against parent branch
+```
+
+### Option B: Direct merge
+
+```bash
+git checkout <parent-branch>
+git merge mission/<id>-<slug> --no-ff -m "mission: complete <slug>"
+```
+
+Use **AskUserQuestion** to ask the user which approach they prefer before
+finalizing.
+
+---
+
 ## Resuming a Mission
 
 Missions are resumable. To resume:
@@ -409,17 +462,22 @@ mission_list
 | `mission_status <dir>` | Show detailed progress for a mission |
 | `mission_feature_done <dir> <id>` | Mark feature complete in status.yaml |
 | `mission_milestone_done <dir> <id>` | Mark milestone complete |
-| `mission_merge <dir> <branch>` | Merge a worker's branch back |
+| `mission_merge <dir> <branch>` | Merge a worker's branch into mission branch |
+| `mission_pr <dir>` | Push mission branch and open PR to parent branch |
 | `mission_next_id` | Get next sequential mission number |
 
 ---
 
 ## Quick Reference: Agent Roles
 
-| Role | Model | Isolation | Purpose |
-|------|-------|-----------|---------|
-| Orchestrator | opus | none | You (Claude running this skill) — plans, decomposes, manages |
-| Worker | sonnet | worktree | Implements a single feature. Tests first. |
-| Scrutiny validator | sonnet/opus | none | Reviews implementation quality, writes learnings |
-| User-test validator | sonnet/opus | none | Black-box behavioral testing against contract |
-| Research subagent | haiku/sonnet | none | Investigates codebase questions for orchestrator |
+| Role | Agent() params | Purpose |
+|------|----------------|---------|
+| Orchestrator | *(you — not a subagent)* | Plans, decomposes, manages execution |
+| Worker | `model: "sonnet"`, `isolation: "worktree"` | Implements a single feature. Tests first. |
+| Scrutiny validator | `model: "sonnet"` or `"opus"` | Reviews implementation quality, writes learnings |
+| User-test validator | `model: "sonnet"` or `"opus"` | Black-box behavioral testing against contract |
+| Research subagent | `model: "haiku"` or `"sonnet"` | Investigates codebase questions for orchestrator |
+
+All roles except Orchestrator are `Agent()` tool calls. "Worker", "validator",
+etc. are role labels in the prompt — not special system concepts. To run
+agents in parallel, include multiple `Agent()` calls in a single response.

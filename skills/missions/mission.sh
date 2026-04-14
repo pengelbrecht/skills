@@ -75,6 +75,14 @@ mission_init() {
   local dir
   dir="$(_missions_dir)/${name}"
 
+  # Record the branch we're branching from (e.g. main)
+  local parent_branch
+  parent_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+
+  # Create and checkout a mission-level feature branch
+  local mission_branch="mission/${name}"
+  git checkout -b "$mission_branch"
+
   mkdir -p "$dir/knowledge"
 
   # Scaffold plan.yaml
@@ -82,7 +90,8 @@ mission_init() {
 mission: "${slug}"
 id: ${id}
 created: "$(_today)"
-base_branch: "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+parent_branch: "${parent_branch}"
+mission_branch: "${mission_branch}"
 status: planning
 milestones: []
 EOF
@@ -246,46 +255,50 @@ mission_milestone_done() {
 
 # ---------------------------------------------------------------------------
 # mission_merge <mission-dir> <branch-name>
-# Merge a worker's feature branch back to the base branch
+# Merge a worker's branch into the mission branch
 # ---------------------------------------------------------------------------
 
 mission_merge() {
   local dir="${1:?Usage: mission_merge <mission-dir> <branch-name>}"
   local branch="${2:?Usage: mission_merge <mission-dir> <branch-name>}"
 
-  # Determine base branch from plan.yaml
-  local base_branch="main"
+  # Determine mission branch from plan.yaml (workers merge into the mission branch)
+  local mission_branch=""
   if [[ -f "$dir/plan.yaml" ]]; then
-    base_branch=$(grep -m1 "^base_branch:" "$dir/plan.yaml" | sed 's/^base_branch: *//' | tr -d '"' || echo "main")
+    mission_branch=$(grep -m1 "^mission_branch:" "$dir/plan.yaml" | sed 's/^mission_branch: *//' | tr -d '"' || echo "")
+  fi
+  # Fallback for plans created before mission branching was added
+  if [[ -z "$mission_branch" ]]; then
+    mission_branch=$(grep -m1 "^base_branch:" "$dir/plan.yaml" | sed 's/^base_branch: *//' | tr -d '"' || echo "main")
   fi
 
-  echo "Merging $branch into $base_branch..."
+  echo "Merging $branch into $mission_branch..."
 
   local current_branch
   current_branch="$(git rev-parse --abbrev-ref HEAD)"
 
-  # If not on base branch, switch to it
-  if [[ "$current_branch" != "$base_branch" ]]; then
-    git checkout "$base_branch"
+  # If not on mission branch, switch to it
+  if [[ "$current_branch" != "$mission_branch" ]]; then
+    git checkout "$mission_branch"
   fi
 
   # Merge with a descriptive commit message
   if git merge "$branch" --no-ff -m "mission: merge $branch"; then
-    echo "Successfully merged $branch into $base_branch."
-    # Clean up the feature branch
+    echo "Successfully merged $branch into $mission_branch."
+    # Clean up the worker branch
     git branch -d "$branch" 2>/dev/null || true
   else
     echo "MERGE CONFLICT merging $branch. Manual resolution required." >&2
     git merge --abort 2>/dev/null || true
     # Switch back if we changed
-    if [[ "$current_branch" != "$base_branch" ]]; then
+    if [[ "$current_branch" != "$mission_branch" ]]; then
       git checkout "$current_branch"
     fi
     return 1
   fi
 
   # Switch back if we changed
-  if [[ "$(git rev-parse --abbrev-ref HEAD)" != "$current_branch" ]] && [[ "$current_branch" != "$base_branch" ]]; then
+  if [[ "$(git rev-parse --abbrev-ref HEAD)" != "$current_branch" ]] && [[ "$current_branch" != "$mission_branch" ]]; then
     git checkout "$current_branch"
   fi
 }
@@ -306,4 +319,35 @@ mission_update_status() {
   else
     echo "${key}: ${value}" >> "$status_file"
   fi
+}
+
+# ---------------------------------------------------------------------------
+# mission_pr <mission-dir> — Open a PR from mission branch to parent branch
+# ---------------------------------------------------------------------------
+
+mission_pr() {
+  local dir="${1:?Usage: mission_pr <mission-dir>}"
+
+  local mission_branch=""
+  local parent_branch="main"
+  if [[ -f "$dir/plan.yaml" ]]; then
+    mission_branch=$(grep -m1 "^mission_branch:" "$dir/plan.yaml" | sed 's/^mission_branch: *//' | tr -d '"' || echo "")
+    parent_branch=$(grep -m1 "^parent_branch:" "$dir/plan.yaml" | sed 's/^parent_branch: *//' | tr -d '"' || echo "main")
+  fi
+
+  if [[ -z "$mission_branch" ]]; then
+    echo "No mission_branch found in plan.yaml — is this a legacy mission?" >&2
+    return 1
+  fi
+
+  local slug
+  slug=$(grep -m1 "^mission:" "$dir/plan.yaml" | sed 's/^mission: *//' | tr -d '"')
+
+  echo "Pushing $mission_branch and opening PR to $parent_branch..."
+  git push -u origin "$mission_branch"
+  gh pr create \
+    --base "$parent_branch" \
+    --head "$mission_branch" \
+    --title "mission: ${slug}" \
+    --body "Mission PR for \`$(basename "$dir")\`. See \`$(basename "$dir")/validation-contract.md\` for acceptance criteria."
 }
