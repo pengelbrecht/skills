@@ -8,6 +8,28 @@ When proposing schema changes (`lore schema propose`), follow these principles t
 2. **Check past rejections** — review `lore pending` and query `_approval_queue` for rejected proposals. If a similar proposal was rejected before, understand why before re-proposing.
 3. **Think about the domain** — a Lore org should model a coherent domain (CRM, inventory, projects, etc.). Each table should represent a distinct entity, not a view or a report.
 
+## Built-in tables — do NOT recreate
+
+The `_users` table contains all org members (team members). **Never create a separate table for users, members, employees, or team.**
+
+```
+_users: id, email, name, role, status, created_at, updated_at, last_login
+```
+
+When your app needs to track who did something, who's assigned, or who's on a team — use a FK to `_users(id)`:
+
+```sql
+-- CORRECT: reference _users for assignees, owners, team members
+CREATE TABLE tasks (
+  ...
+  assignee_id TEXT REFERENCES _users(id),
+  created_by TEXT REFERENCES _users(id)
+);
+
+-- WRONG: never create a separate users/members/team table
+CREATE TABLE team_members (id TEXT, name TEXT, email TEXT, ...);  -- DON'T DO THIS
+```
+
 ## Table design
 
 - **Primary keys**: always `id TEXT PRIMARY KEY` with a meaningful prefix (e.g. `cust_`, `ord_`, `task_`). Use ULIDs or UUIDs, never auto-incrementing integers.

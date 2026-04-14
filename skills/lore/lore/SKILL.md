@@ -269,6 +269,7 @@ Use only when ViewSpec can't handle the requirement. See [Standalone Apps](stand
 3. **Use parameterized queries** — never interpolate untrusted values
 4. **Contribute what you learn** — patterns, corrections, semantics
 5. **Check past feedback** — before proposing schema changes, check if similar proposals were rejected
+6. **Use `_users` for people** — never create tables for users, members, employees, or team. The `_users` table is the org's member directory. Reference it via FK (e.g., `assignee_id TEXT REFERENCES _users(id)`)
 
 ## Reference docs
 
