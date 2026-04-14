@@ -6,7 +6,11 @@
     "description": "Initialize Prisma with SQLite. Create User model (id, email unique, password_hash, created_at, updated_at) and Task model (id, title, description nullable, status enum pending/in_progress/completed, user_id FK, created_at, updated_at). Generate and apply migration.",
     "assertions": ["A1", "A8"],
     "dependencies": [],
-    "files_hint": ["prisma/schema.prisma", "prisma/migrations/", "package.json"],
+    "files_hint": [
+      "prisma/schema.prisma",
+      "prisma/migrations/",
+      "package.json"
+    ],
     "status": "pending",
     "type": "implementation"
   },
@@ -17,7 +21,11 @@
     "description": "Create POST /api/auth/register (hash password with bcrypt, create user, return 201 with user object, 409 on duplicate email). Create POST /api/auth/login (verify password, return JWT with user_id in payload, 401 on invalid credentials). Add auth middleware that verifies JWT and attaches user to request.",
     "assertions": ["A1", "A2", "A3"],
     "dependencies": ["F1"],
-    "files_hint": ["src/routes/auth.ts", "src/middleware/auth.ts", "src/lib/jwt.ts"],
+    "files_hint": [
+      "src/routes/auth.ts",
+      "src/middleware/auth.ts",
+      "src/lib/jwt.ts"
+    ],
     "status": "pending",
     "type": "implementation"
   },
