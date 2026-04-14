@@ -11,7 +11,7 @@ description: >
   "orchestrate building X", "multi-step project", or any request that implies
   decomposing large work into validated stages. Also triggers on "/missions".
 metadata:
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # Missions
@@ -155,14 +155,30 @@ Create `validation-contract.md` in the mission directory. Each assertion has:
 See `references/contract-format.md` for the full schema and
 `samples/sample-contract.md` for an example.
 
+### Surface assumptions before drafting
+
+Before writing assertions, explicitly list every assumption you're making about
+who performs the action, what confirms success, and what's out of scope. Present
+these to the user via **AskUserQuestion** and get confirmation. Common
+assumptions that slip through:
+
+- Who is the actor? (e.g., "owner" vs "admin" vs "any authenticated user")
+- What constitutes confirmation/authorization for destructive actions?
+- Which layers need to enforce the behavior? (API-only vs API + UI)
+- What happens on failure — error message, redirect, retry?
+
+Do not move from assumptions to contract silently. The cost of a missed
+assumption is a wrong contract, which cascades into wrong features.
+
 ### Process
 
-1. Draft the contract based on confirmed requirements.
-2. Present it to the user via **AskUserQuestion**: "Does this fully capture
+1. Surface and confirm assumptions (see above).
+2. Draft the contract based on confirmed requirements and assumptions.
+3. Present it to the user via **AskUserQuestion**: "Does this fully capture
    what 'done' means? Should any assertions be added, removed, or revised?"
-3. Iterate until the user approves. Each revision round uses AskUserQuestion
+4. Iterate until the user approves. Each revision round uses AskUserQuestion
    to present the updated contract and ask for confirmation.
-4. Write the approved contract to the mission directory.
+5. Write the approved contract to the mission directory.
 
 ---
 
@@ -404,19 +420,52 @@ user's input before continuing. Do not attempt to work around the blocker.
 
 ---
 
-## Phase 9: Finalize
+## Phase 9: Completion
 
-Once the full mission passes validation (all milestones complete), merge the
-mission branch back to the parent branch or open a PR:
+When all milestones pass validation, present the validation contract evidence
+to the user. This is the mission's deliverable — the user cannot evaluate
+quality without seeing proof.
 
-### Option A: Open a PR (recommended)
+### Contract evidence table
+
+Present every assertion as a row:
+
+| ID | Assertion | Method | Status | Evidence |
+|----|-----------|--------|--------|----------|
+| A1 | API requires confirm field | test-runner | PASS | 3 tests: missing (400), wrong (400), correct (200) |
+| A2 | deleteOrg called on confirm | test-runner | PASS | Test verifies org status → 'deleted' in CP DB |
+| ... | ... | ... | ... | ... |
+
+Rules:
+- Every assertion must appear. No silent omissions.
+- Status is PASS or FAIL. If FAIL, explain what's unresolved.
+- Evidence is one line — not a paragraph. Link to the test file or screenshot.
+- If a validator caught and fixed issues, note the fix briefly.
+
+### Summary
+
+After the table, provide a brief summary:
+- Files changed (count and list)
+- Tests added/modified
+- Critical issues caught by validators (if any)
+- Branch name for PR
+
+Do NOT mark the mission complete or update `status.yaml` to `complete` until
+the evidence table has been presented to the user.
+
+### Merge to parent
+
+Once the user approves, merge the mission branch back to the parent branch
+or open a PR:
+
+**Option A: Open a PR (recommended)**
 
 ```bash
 mission_pr <mission-dir>
 # Pushes mission branch, opens PR against parent branch
 ```
 
-### Option B: Direct merge
+**Option B: Direct merge**
 
 ```bash
 git checkout <parent-branch>
