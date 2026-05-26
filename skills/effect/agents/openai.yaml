@@ -1,0 +1,4 @@
+interface:
+  display_name: "Effect"
+  short_description: "Write readable TypeScript with Effect"
+  default_prompt: "Use $effect to implement readable TypeScript Effect code."
