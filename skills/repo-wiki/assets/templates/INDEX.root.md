@@ -1,0 +1,52 @@
+# repo-wiki
+
+The knowledge base for this repository. **Agent-first, propose-not-apply.**
+Read this file first, then pull pages by relevance — don't read the whole tree.
+
+## How to use this wiki
+
+- **Find knowledge:** `ls` a folder, read descriptive filenames, match `covers:`
+  frontmatter against the files you're touching, skim each page's **Compiled Truth**
+  (the first lines). Session start injects the pages relevant to your working set.
+- **Add knowledge:** pick the folder with the resolver below, use the page shape
+  (Compiled Truth + Timeline), stamp `covers:` if code is involved, and **propose the
+  diff** — never silently apply. Decisions are append-only; supersede, don't edit.
+- **Freshness:** `kb status` flags pages whose `covers` paths changed since their
+  `verified_against` sha. Stale is a *signal*, not a gate.
+
+## What goes where — the resolver
+
+1. user / why-it-exists / what-to-build → `product/`
+2. meaning of a term → `glossary/`
+3. how the system *is built / works* → `architecture/`
+4. a rule / limit that must hold → `constraints/`
+5. why a *past choice* was made → `decisions/`
+6. how to run / deploy / recover → `operations/`
+7. where it's heading / in flight → `roadmap/`
+8. how *we* develop → `conventions/`
+9. unsure → `inbox/`  ·  dead → `archive/`
+
+Disambiguation: descriptive "how it works" → architecture, prescriptive "what must
+hold" → constraints; forward-looking rule → constraints, past choice+why → decisions;
+non-functional req → constraints, functional req → product.
+
+## Page shape
+
+```markdown
+---
+type: constraint
+source: canonical          # canonical | from-code | from-doc
+covers: [src/area/**]
+verified_against: <sha>
+status: active
+---
+## Compiled Truth
+<current best understanding — terse, claim-first>
+## Timeline
+- <date> — <evidence / source> — verified @<sha>
+```
+
+## Conventions in this wiki
+
+<!-- Record any repo-specific deviations from the recommended structure here, so the
+     wiki stays self-documenting. e.g. "decisions live in docs/adrs/, synthesized here." -->

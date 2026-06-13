@@ -1,0 +1,21 @@
+<!--
+  This block replaces the *knowledge* that used to live in CLAUDE.md / AGENTS.md.
+  Keep it ~12 lines. Knowledge belongs in repo-wiki/, not here. Only universal,
+  always-relevant directives stay below.
+-->
+
+## Knowledge base
+
+This repo's knowledge lives in `repo-wiki/`. **Read `repo-wiki/INDEX.md` first** — it's
+the map + filing rules. Don't read the whole wiki; pull pages by relevance (`covers:`
+frontmatter, `grep`, descriptive filenames, each page's Compiled-Truth first line).
+Session start injects the pages relevant to your working set. When you settle a decision
+or learn a constraint, file it per `repo-wiki/INDEX.md` (propose-only). Full method: the
+`repo-wiki` skill.
+
+## Always-on directives
+
+<!-- Only the few universal, safety-critical rules that must be in every context. -->
+- <e.g. Use pnpm, never npm.>
+- <e.g. Never commit secrets.>
+- <e.g. Run `pnpm typecheck` before committing.>

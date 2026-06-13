@@ -1,0 +1,16 @@
+{
+  "//": "Snippet merged into .claude/settings.json by `kb.py init`. The SessionStart hook is the heartbeat: it injects the wiki, reports drift, and reconciles missed chats. Output on stdout is added to the session context.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/skills/repo-wiki/scripts/kb.py\" session-start 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}

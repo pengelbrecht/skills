@@ -1,0 +1,23 @@
+{
+  "skill_name": "repo-wiki",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Our backend repo has like 30 markdown files in docs/ and honestly half of them are out of date — nobody trusts them anymore. I want a proper knowledge base that actually stays current. Can you set one up?",
+      "expected_output": "Triggers repo-wiki. Runs `kb.py init` (or scaffolds repo-wiki/ with the recommended MECE folders + root INDEX.md), explains the structure and the propose-not-apply/freshness model, and offers to seed a few real pages. Does NOT dump a tree of empty docs or mass-import the stale files uncritically.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "We just spent an hour going back and forth and decided to drop Redis and use Postgres LISTEN/NOTIFY for our job queue — mainly to cut an external dependency and because our throughput is low. I don't want to lose why we made this call. Capture it.",
+      "expected_output": "Routes this to decisions/ as a canonical ADR-style page (NNNN-slug.md) using the Compiled-Truth + Timeline shape, recording the choice AND the rejected alternative (Redis) and the rationale (drop a dependency, low throughput). Proposes the page; does not silently write. Stamps covers if a relevant code path is identifiable.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Our CLAUDE.md has grown to ~400 lines and it's a mix of 'always run pnpm test' rules and big paragraphs explaining how the auth system works and why we picked our multi-tenant model. Nobody reads it. Help.",
+      "expected_output": "Recognizes the directive-vs-knowledge split. Proposes hollowing CLAUDE.md into a thin shim (always-on directives + pointer to repo-wiki/), migrating the knowledge (auth explanation → architecture/, multi-tenant rationale → decisions/) into the wiki with covers where code-scoped. Propose-only diff; keeps the universal directives resident.",
+      "files": []
+    }
+  ]
+}
