@@ -248,8 +248,13 @@ status`); deterministic `kb status` (git staleness via `covers`); vendored recal
 
 - **Local wiki web viewer** — SHIPPED as `kb serve`. Sidebar tree, page render
   (frontmatter + Compiled Truth + Timeline via vendored marked), in-page TOC, ripgrep
-  search, staleness pills, covers chips, backlinks. Stdlib-only, localhost-only,
-  read-only. See `skills/repo-wiki/references/web.md`.
+  search, staleness pills, covers chips, backlinks. Stdlib-only, localhost-only.
+  See `skills/repo-wiki/references/web.md`.
+- **Inline comments + live auto-refresh** — SHIPPED. Highlight any text in the viewer
+  and post a comment; it lands in `.comments/comments.jsonl` with a line anchor (`page`,
+  `line`, `section`, `selected_text`). Agents see open comments via a `UserPromptSubmit`
+  hook (installed by `kb.py init`). The viewer auto-refreshes when an agent edits the
+  `.md` in response — no manual reload (live `/api/changed` + `/api/revision` poll).
 
 ## Open questions
 

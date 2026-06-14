@@ -134,6 +134,86 @@ Returns pages that reference `path`. Uses the same search backend as `/api/searc
 }
 ```
 
+### `POST /api/comment`
+
+Appends an inline comment record to `<wiki>/.comments/comments.jsonl`. Called by the
+web viewer when a user submits a selection comment. Request body is JSON:
+
+```json
+{
+  "page":          "architecture/auth.md",
+  "line":          42,
+  "end_line":      47,
+  "section":       "## Compiled Truth",
+  "selected_text": "…the text the user highlighted…",
+  "comment":       "This is stale — the token endpoint moved."
+}
+```
+
+`page` is required and must resolve to a `.md` file inside the wiki (path traversal
+rejected). `comment` and `selected_text` are required and non-empty. `line`,
+`end_line`, and `section` are optional anchors. Size caps: `comment` ≤ 4000 chars,
+`selected_text` ≤ 2000, `section` ≤ 200.
+
+Success response (200):
+
+```json
+{
+  "id": "193a4f2b-c1d2e3f4",
+  "status": "ok"
+}
+```
+
+The written record also carries `timestamp` (ISO-8601 UTC), `status: "open"`.
+
+Error responses: `{"error": "<message>"}` with 400 (bad input) or 500 (write failure).
+
+Agents consume comments via `kb.py comments list` and resolve them with
+`kb.py comments resolve <id> --note "..."`. See `references/comments.md`.
+
+### `GET /api/changed?path=<rel>`
+
+Returns the `mtime` and `size` of a single wiki file without re-fetching content.
+Used by the viewer's per-page poll to detect in-place edits (e.g. an agent updating
+the `.md` file in response to a comment).
+
+```json
+{ "mtime": 1718300123.456, "size": 4096 }
+```
+
+`path` is relative to the wiki root. Rejects `..` and absolute paths. Returns 400 if
+the file does not exist or is not a `.md` file.
+
+### `GET /api/revision`
+
+Returns the maximum `mtime` across **all** `.md` files in the wiki (recursive). Used
+by the viewer's global poll to detect any wiki change — a new page, an edit to any
+file — and trigger a sidebar/content refresh.
+
+```json
+{ "revision": 1718300200.123 }
+```
+
+No parameters. Never errors (returns 0.0 on an empty wiki).
+
+---
+
+## Live auto-refresh
+
+The viewer polls two endpoints to keep the page current without a manual reload:
+
+| Poll | Endpoint | Interval | Action on change |
+|---|---|---|---|
+| Per-page | `GET /api/changed?path=<rel>` | ~5 s | Re-fetch and re-render the current page |
+| Global | `GET /api/revision` | ~10 s | Reload sidebar tree; re-render page if it changed |
+
+This creates the **agent-edits → viewer-updates** loop: when an agent acts on a
+comment and rewrites the `.md` file, the viewer picks up the change within ~5 seconds
+— the human sees the update without refreshing.
+
+Polling is paused when the browser tab is hidden (via Page Visibility API) and
+resumes immediately when the tab becomes active again.
+
 ---
 
 ## Architecture
@@ -141,12 +221,17 @@ Returns pages that reference `path`. Uses the same search backend as `/api/searc
 ```
 kb.py cmd_serve()
   └─ http.server.HTTPServer  (stdlib, no external deps)
-       └─ WikiHandler (do_GET)
-            ├─ /api/*        → Python handlers (tree, page, search, status, backlinks)
-            └─ /             → serves assets/web/index.html
-               /app.js       → assets/web/app.js
-               /style.css    → assets/web/style.css
-               /marked.min.js → assets/web/marked.min.js  (vendored)
+       ├─ WikiHandler (do_GET)
+       │    ├─ /api/tree        → sidebar tree
+       │    ├─ /api/page        → page content + frontmatter
+       │    ├─ /api/search      → full-text search
+       │    ├─ /api/status      → staleness state
+       │    ├─ /api/backlinks   → backlink lookup
+       │    ├─ /api/changed     → per-file mtime poll
+       │    ├─ /api/revision    → global wiki mtime poll
+       │    └─ /               → serves assets/web/ (index.html, app.js, style.css, marked.min.js)
+       └─ WikiHandler (do_POST)
+            └─ /api/comment     → append comment to <wiki>/.comments/comments.jsonl
 
 assets/web/
   index.html      — shell (sidebar + content pane)
@@ -172,7 +257,7 @@ A background daemon thread runs a staleness reconcile on startup so the first
 | Network exposure | Binds to `127.0.0.1` only — never `0.0.0.0` |
 | Path traversal | `/api/page` and `/api/backlinks` reject `..` segments and absolute paths; `Path.resolve().relative_to(wiki)` sandbox enforced |
 | Shell injection | Search uses `subprocess` with a list (not a string); `shell=False` is the default |
-| Read-only | No POST/PUT/DELETE routes; no write path exists |
+| Write surface | Only `POST /api/comment` writes (appends to `.comments/comments.jsonl`); all other routes are read-only; no delete/update path |
 | Query length | Search query capped at 200 characters |
 
 The viewer is intentionally localhost-only and read-only. Do not expose it via a
@@ -183,6 +268,10 @@ reverse proxy without authentication.
 ## Deferred: edit support
 
 In-browser editing (create page, edit Compiled Truth, append Timeline entry) is
-tracked as a follow-up epic. The current viewer is **read-only by design** — the
-propose-not-apply discipline that keeps `canonical` pages trustworthy applies here
-too. Any edit path must gate `canonical` rewrites on human confirmation.
+tracked as a follow-up epic. The current viewer is **mostly read-only** — `POST
+/api/comment` is the only write surface (human feedback, not content edits). The
+propose-not-apply discipline that keeps `canonical` pages trustworthy still applies:
+any edit path must gate `canonical` rewrites on human confirmation.
+
+Comments + live auto-refresh are now shipped. See `references/comments.md` for the
+full consumption protocol (hook install, watch-loop, act-then-resolve).

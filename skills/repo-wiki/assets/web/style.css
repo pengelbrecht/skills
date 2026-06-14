@@ -27,6 +27,8 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --sidebar-w: 256px;
+
+  --error: #c0392b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -37,6 +39,7 @@
     --muted:   #9aa1ad;
     --border:  #262a31;
     --accent:  #8b93f0;
+    --error:   #f87171;
   }
 }
 
@@ -115,7 +118,7 @@ body {
 
 .tree-error {
   padding: var(--sp-4);
-  color: #c0392b;
+  color: var(--error, #c0392b);
   font-size: 0.875rem;
 }
 
@@ -347,7 +350,7 @@ body {
 
 /* ── page errors ── */
 .page-error {
-  color: #c0392b;
+  color: var(--error, #c0392b);
   font-size: 0.9rem;
   padding: var(--sp-4) 0;
 }
@@ -679,6 +682,8 @@ body {
   cursor: pointer;
   white-space: nowrap;
   transform: translateX(-50%);
+  /* Prevent the button from overflowing the right edge of the viewport */
+  max-width: calc(100vw - var(--sp-8));
   transition: box-shadow 80ms;
 }
 
@@ -726,6 +731,9 @@ body {
   word-break: break-word;
   font-style: italic;
   line-height: 1.5;
+  /* Cap height so a long selection doesn't dwarf the textarea */
+  max-height: 6rem;
+  overflow-y: auto;
 }
 
 .comment-modal-textarea {
@@ -751,7 +759,7 @@ body {
 
 .comment-modal-error {
   font-size: 0.8125rem;
-  color: #c0392b;
+  color: var(--error, #c0392b);
   margin: 0;
 }
 
@@ -822,5 +830,20 @@ body {
   }
   .comment-modal {
     box-shadow: 0 8px 32px rgba(0, 0, 0, .45);
+  }
+}
+
+/* Narrow screens: tighter modal padding, full-width actions */
+@media (max-width: 480px) {
+  .comment-modal {
+    padding: var(--sp-4);
+  }
+  .comment-modal-actions {
+    flex-direction: column-reverse;
+  }
+  .comment-modal-submit,
+  .comment-modal-cancel {
+    width: 100%;
+    text-align: center;
   }
 }

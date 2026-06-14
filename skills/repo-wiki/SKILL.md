@@ -172,14 +172,22 @@ provenance): `references/web.md`.
 The wiki viewer lets users highlight text and post inline comments. These land in
 `<wiki>/.comments/comments.jsonl` and are surfaced to agents two ways:
 
-- **Passive hook** (`assets/templates/comments-hook.sh`, wired as a `UserPromptSubmit`
-  hook): injects open comments at the top of every agent turn with zero poll overhead.
+- **Passive hook** (wired by `kb.py init` as a `UserPromptSubmit` hook): injects open
+  comments at the top of every agent turn with zero poll overhead.
 - **Active watch loop**: the agent calls `kb.py comments list --json --since <cursor>`
   on a short interval, acts on new comments, and advances the cursor.
 
-In either case the **consumption protocol** is: read the anchor (`page`, `line`,
-`section`, `selected_text`), act (usually edit the `.md` directly — the comment is the
-approval), append a Timeline entry, then `kb.py comments resolve <id> --note "..."`.
+Each comment carries a **line anchor** (`page`, `line`, `end_line`, `section`,
+`selected_text`) so agents know exactly where in the file the feedback applies.
+
+The **agent-edits → viewer-updates loop**: when an agent rewrites the `.md` file in
+response to a comment, the viewer picks up the change within ~5 seconds via live
+auto-refresh (per-page `/api/changed` poll + global `/api/revision` poll) — no manual
+reload needed.
+
+**Consumption protocol**: read the anchor, act (usually edit the `.md` directly —
+the comment is the approval), append a Timeline entry, then
+`kb.py comments resolve <id> --note "..."`.
 
 Full details — hook install snippet, watch-loop pseudocode, act-then-resolve rules,
 edge cases: `references/comments.md`.

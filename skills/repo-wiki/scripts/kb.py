@@ -381,10 +381,13 @@ def cmd_init(args):
     # local ingest watermark (gitignored)
     ingest = wiki / ".ingest"
     ingest.mkdir(exist_ok=True)
-    ensure_gitignore(root, ["repo-wiki/.ingest/"])
+    ensure_gitignore(root, ["repo-wiki/.ingest/", "repo-wiki/.comments/"])
 
     # SessionStart hook
     installed = install_hook(root)
+
+    # UserPromptSubmit hook (comments)
+    comments_installed = install_comments_hook(root)
 
     # detect instruction files
     shims = [f for f in ("CLAUDE.md", "AGENTS.md", "GEMINI.md") if (root / f).exists()]
@@ -394,8 +397,12 @@ def cmd_init(args):
         print("created:")
         for c in created:
             print(f"  + {c}")
-    print(f"\nSessionStart hook: {'installed in .claude/settings.json' if installed else 'already present / skipped'}")
-    print("ingest watermark: repo-wiki/.ingest/ (gitignored)")
+    print(f"\nSessionStart hook:      {'installed in .claude/settings.json' if installed else 'already present / skipped'}")
+    print(f"Comments hook:          {'installed (UserPromptSubmit)' if comments_installed else 'already present / skipped'}")
+    print("ingest watermark:       repo-wiki/.ingest/ (gitignored)")
+    print("comments store:         repo-wiki/.comments/ (gitignored)")
+    print("\nComments: highlight text in the web viewer (kb serve) to post inline")
+    print("feedback. Open comments are injected into every agent turn via the hook.")
     if shims:
         print(f"\nFound {', '.join(shims)} — consider migrating its *knowledge* into the wiki")
         print("and leaving a thin shim (see references/claude-md-shim.md +")
@@ -460,6 +467,43 @@ def install_hook(root):
         return False
     ss.append({
         "matcher": "startup",
+        "hooks": [{"type": "command", "command": cmd}],
+    })
+    settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
+def install_comments_hook(root):
+    """Install the UserPromptSubmit hook that injects open wiki comments.
+
+    Idempotent: checks whether a kb.py comments call is already present in any
+    UserPromptSubmit entry before adding.  Does not touch SessionStart.
+    """
+    settings = root / ".claude" / "settings.json"
+    settings.parent.mkdir(exist_ok=True)
+    data = {}
+    if settings.exists():
+        try:
+            data = json.loads(settings.read_text())
+        except Exception:
+            data = {}
+    hooks = data.setdefault("hooks", {})
+    ups = hooks.setdefault("UserPromptSubmit", [])
+    blob = json.dumps(ups)
+    # Idempotency: bail if a kb.py comments invocation is already wired
+    if "repo-wiki/scripts/kb.py" in blob and "comments" in blob:
+        return False
+    cmd = (
+        'KB="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}'
+        '/skills/repo-wiki/scripts/kb.py"; '
+        'PENDING="$(python3 "$KB" comments list 2>/dev/null)" || true; '
+        '[ -z "$PENDING" ] || [ "$PENDING" = "No open comments." ] && exit 0; '
+        "printf '=== PENDING WIKI COMMENTS (feedback from the viewer -- please act on these) ===\\n'; "
+        'printf \'%s\\n\' "$PENDING"; '
+        "printf '=== end wiki comments -- resolve each with: kb.py comments resolve <id> --note \"<what you did>\" ===\\n'"
+    )
+    ups.append({
+        "matcher": "",
         "hooks": [{"type": "command", "command": cmd}],
     })
     settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
