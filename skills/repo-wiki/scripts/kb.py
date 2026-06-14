@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -523,6 +524,78 @@ def _build_tree(wiki):
     return {"folders": folders, "pages": pages}
 
 
+_SEARCH_MAX_QUERY = 200
+_SEARCH_MAX_RESULTS = 100
+
+
+def _search_wiki(wiki, query):
+    """Search wiki for query using ripgrep (or grep fallback).
+
+    Security contract:
+    - command is built as an argv list; shell=False (never shell=True).
+    - query is passed as a positional argument (after -e) so shell metacharacters
+      in the query cannot be interpreted by a shell.
+    - wiki dir is resolved and passed as a Path argument.
+    """
+    wiki_str = str(wiki)
+    if shutil.which("rg"):
+        cmd = [
+            "rg",
+            "--line-number",
+            "--no-heading",
+            "--color", "never",
+            "--max-count", "1",   # one match per file (keep results concise)
+            "-g", "*.md",
+            "-e", query,
+            wiki_str,
+        ]
+    else:
+        cmd = [
+            "grep",
+            "-rn",
+            "--include=*.md",
+            "-e", query,
+            wiki_str,
+        ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return []
+
+    results = []
+    for raw_line in proc.stdout.splitlines():
+        # ripgrep / grep output format: /abs/path/file.md:lineno:matched text
+        # Split on first two colons only
+        parts = raw_line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        abs_path, lineno_str, snippet = parts[0], parts[1], parts[2]
+        try:
+            lineno = int(lineno_str)
+        except ValueError:
+            continue
+        try:
+            rel = str(Path(abs_path).relative_to(wiki))
+        except ValueError:
+            continue
+        results.append({
+            "path": rel,
+            "line": lineno,
+            "snippet": snippet.strip()[:300],
+        })
+        if len(results) >= _SEARCH_MAX_RESULTS:
+            break
+
+    return results
+
+
 def _make_handler(wiki):
     """Return a BaseHTTPRequestHandler class closed over wiki path."""
     import http.server
@@ -601,6 +674,24 @@ def _make_handler(wiki):
                             body = text[end + 4:].lstrip("\n")
                     rel_str = str(target.relative_to(wiki))
                     self.send_json({"path": rel_str, "frontmatter": fm, "markdown": body})
+                except Exception as exc:
+                    self.send_json({"error": str(exc)}, status=500)
+                return
+
+            # /api/search?q=<query>
+            if path == "/api/search":
+                qs = parse_qs(parsed.query)
+                q_parts = qs.get("q", [])
+                q = q_parts[0] if q_parts else ""
+                if not q or not q.strip():
+                    self.send_json({"results": []})
+                    return
+                if len(q) > _SEARCH_MAX_QUERY:
+                    self.send_json({"error": "query too long"}, status=400)
+                    return
+                try:
+                    results = _search_wiki(wiki, q)
+                    self.send_json({"results": results})
                 except Exception as exc:
                     self.send_json({"error": str(exc)}, status=500)
                 return

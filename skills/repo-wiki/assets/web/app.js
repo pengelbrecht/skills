@@ -283,6 +283,85 @@
     }
   }
 
+  // ── search ──────────────────────────────────────────────────────────────────
+
+  var searchResults = document.getElementById("search-results");
+  var searchInput = document.getElementById("search-input");
+  var _searchTimer = null;
+
+  function showTree() {
+    tree.hidden = false;
+    if (searchResults) searchResults.hidden = true;
+  }
+
+  function showSearchResults(results, q) {
+    tree.hidden = true;
+    searchResults.hidden = false;
+    if (!results.length) {
+      searchResults.innerHTML = '<p class="search-empty">No results for <em>' + escHtml(q) + '</em></p>';
+      return;
+    }
+    var html = '<ul class="search-list">';
+    results.forEach(function (r) {
+      var label = r.path.replace(/\.md$/, "");
+      html +=
+        '<li class="search-item">' +
+        '<a href="#" class="search-path" data-path="' + escHtml(r.path) + '">' +
+        escHtml(label) +
+        '<span class="search-line">:' + r.line + '</span>' +
+        '</a>' +
+        '<p class="search-snippet">' + escHtml(r.snippet) + '</p>' +
+        '</li>';
+    });
+    html += '</ul>';
+    searchResults.innerHTML = html;
+  }
+
+  function doSearch(q) {
+    q = q.trim();
+    if (!q) {
+      showTree();
+      return;
+    }
+    fetch("/api/search?q=" + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        showSearchResults(data.results || [], q);
+      })
+      .catch(function () {
+        searchResults.hidden = false;
+        tree.hidden = true;
+        searchResults.innerHTML = '<p class="search-empty">Search failed.</p>';
+      });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener("input", function () {
+      clearTimeout(_searchTimer);
+      var q = searchInput.value;
+      if (!q.trim()) {
+        showTree();
+        return;
+      }
+      _searchTimer = setTimeout(function () { doSearch(q); }, 250);
+    });
+    searchInput.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        searchInput.value = "";
+        showTree();
+      }
+    });
+  }
+
+  if (searchResults) {
+    searchResults.addEventListener("click", function (e) {
+      var a = e.target.closest("a[data-path]");
+      if (!a) return;
+      e.preventDefault();
+      navigateTo(a.dataset.path);
+    });
+  }
+
   // ── boot ────────────────────────────────────────────────────────────────────
 
   fetch("/api/tree")

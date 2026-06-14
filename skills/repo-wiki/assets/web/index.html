@@ -10,7 +10,11 @@
   <nav id="sidebar" aria-label="Wiki navigation">
     <div id="sidebar-header">
       <span class="sidebar-title">repo-wiki</span>
+      <div id="search-box">
+        <input id="search-input" type="search" placeholder="Search…" aria-label="Search wiki" autocomplete="off" />
+      </div>
     </div>
+    <div id="search-results" aria-live="polite" hidden></div>
     <div id="tree" role="tree" aria-label="Pages">
       <div class="tree-loading">Loading…</div>
     </div>
