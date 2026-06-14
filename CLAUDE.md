@@ -1,31 +1,16 @@
 # Skills Repository
 
-This is a monorepo of Claude Code skills authored by Peter Engelbrecht.
+A monorepo of **distributable** Claude Code skills (installed via `npx skills add`) — not
+`.claude/` local config. See decision 0001 in the wiki for why that distinction matters.
 
-> **Note:** "Skills" in this repo are distributable skill packages (installed via [skills.sh](https://skills.sh) / `npx skills add`) — they are NOT `.claude/` or `~/.claude/` local configuration files. Each skill lives in a subdirectory here for distribution to other Claude Code instances.
+## Knowledge base
 
-## Structure
+This repo's knowledge lives in `repo-wiki/`. **Read `repo-wiki/INDEX.md` first** — it's the
+map + filing rules. Don't read the whole wiki; pull pages by relevance (`covers:`
+frontmatter, `grep`, descriptive filenames, each page's Compiled-Truth first line).
+When you settle a decision or learn a constraint, file it per `repo-wiki/INDEX.md`
+(propose-only). **If knowledge you need isn't in the wiki:** find it (read the code, ask,
+or web-search), use it, then propose adding it so the next agent doesn't re-derive it —
+when it's durable and non-obvious. Full method: the `repo-wiki` skill (`skills/repo-wiki/`).
 
-```
-skills/
-  <skill-name>/
-    SKILL.md          # Skill definition (required by skills.sh)
-    pyproject.toml    # If the skill has a Python package
-    src/              # Source code
-    samples/          # Example inputs
-    Makefile          # Dev commands
-```
-
-Each skill lives in `skills/<skill-name>/` with a `SKILL.md` at its root. This structure is compatible with `npx skills add pengelbrecht/skills`.
-
-## Adding a new skill
-
-1. Create `skills/<skill-name>/SKILL.md` with YAML frontmatter (`name`, `description`)
-2. Add any supporting files (source code, references, samples) in the same directory
-3. Update the table in `README.md`
-
-## Current skills
-
-- **agent-screencast** — Record narrated, captioned video demos of web apps using agent-browser + edge-tts + ffmpeg
-- **gws-slides** — Create polished, professional Google Slides presentations using the gws CLI
-- **missions** — Break large engineering tasks into planned, validated missions executed by specialized agents
+Browse it in a browser: `python3 skills/repo-wiki/scripts/kb.py serve`.

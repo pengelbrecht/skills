@@ -26,3 +26,10 @@ session/
 
 # Lock files
 uv.lock
+
+# Secrets
+.env
+.env.local
+
+# repo-wiki local ingest state
+repo-wiki/.ingest/
