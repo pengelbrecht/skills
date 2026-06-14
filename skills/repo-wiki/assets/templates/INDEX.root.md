@@ -65,6 +65,14 @@ status: active
 - <date> — <evidence / source> — verified @<sha>
 ```
 
+## Wiki comments — feedback channel
+
+The wiki viewer lets users highlight text and leave comments. These are a
+**human-in-the-loop feedback channel** for agents: if the `UserPromptSubmit` hook
+injects a `PENDING WIKI COMMENTS` block, act on each comment (edit the page, file to
+`inbox/`, or reply) and resolve it with `kb.py comments resolve <id> --note "..."`.
+Full protocol: `repo-wiki/references/comments.md`.
+
 ## Conventions in this wiki
 
 <!-- Record any repo-specific deviations from the recommended structure here, so the
