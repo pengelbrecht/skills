@@ -624,6 +624,7 @@ def _make_handler(wiki):
             self.send_response(200)
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-cache")  # always revalidate after a skill update
             self.end_headers()
             self.wfile.write(data)
 
@@ -800,7 +801,7 @@ def cmd_serve(args):
             root = repo_root()
         except SystemExit:
             sys.exit("not inside a git repo and --wiki not specified")
-        wiki = root / "repo-wiki"
+        wiki = (root / "repo-wiki").resolve()
 
     if not wiki.exists():
         sys.exit(f"wiki directory does not exist: {wiki}\n"
@@ -810,7 +811,11 @@ def cmd_serve(args):
     _background_reconcile(wiki)
 
     handler_cls = _make_handler(wiki)
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler_cls)
+    try:
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler_cls)
+    except OSError as exc:
+        sys.exit(f"cannot bind 127.0.0.1:{args.port} — {exc}.\n"
+                 "Is the port already in use? Try --port <other>.")
 
     print(f"repo-wiki serving on http://127.0.0.1:{args.port}")
     print(f"  wiki : {wiki}")
