@@ -246,12 +246,10 @@ status`); deterministic `kb status` (git staleness via `covers`); vendored recal
 
 ## Later / fun
 
-- **Local wiki web viewer** — a tiny `kb serve` web server that renders `repo-wiki/` for
-  humans to traverse/read: folder `INDEX.md` as landing pages, Compiled-Truth on top,
-  Timeline below, `covers`/backlinks as navigation, a staleness badge per page. Read-only,
-  zero-infra (serve the markdown straight from disk). Pairs with the agent-first design —
-  agents read via `covers`/grep; humans get a browsable view. (Karpathy-wiki / agentwiki
-  vibe, but purely local and ephemeral.)
+- **Local wiki web viewer** — SHIPPED as `kb serve`. Sidebar tree, page render
+  (frontmatter + Compiled Truth + Timeline via vendored marked), in-page TOC, ripgrep
+  search, staleness pills, covers chips, backlinks. Stdlib-only, localhost-only,
+  read-only. See `skills/repo-wiki/references/web.md`.
 
 ## Open questions
 

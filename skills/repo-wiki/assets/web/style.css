@@ -307,11 +307,6 @@ body {
   margin-bottom: var(--sp-3);
 }
 
-.page-meta-placeholder {
-  /* Placeholder for staleness badge + covers chips + backlinks (rcs). Empty for now. */
-  display: none;
-}
-
 /* ── frontmatter table ── */
 .fm-table {
   width: auto;
@@ -575,7 +570,7 @@ body {
 
 /* ── page meta bar (badge + covers chips) ── */
 .page-meta-placeholder {
-  display: flex !important;   /* override the previous display:none */
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);

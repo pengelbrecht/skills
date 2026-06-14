@@ -148,6 +148,25 @@ agent doesn't re-derive it — only when the knowledge is durable and non-obviou
 why the shim and root `INDEX.md` carry a "missing knowledge?" instruction: the wiki is a
 write-back cache that grows from use, not just from chats.
 
+## Local web viewer — `kb serve`
+
+Browse the wiki in a browser without any external deps:
+
+```bash
+python3 scripts/kb.py serve               # default port 7654, auto-detects wiki
+python3 scripts/kb.py serve --port 8080   # custom port
+python3 scripts/kb.py serve --wiki path/to/repo-wiki   # explicit wiki dir
+```
+
+Opens at `http://127.0.0.1:<port>/`. What you get: a sidebar tree, page render with
+frontmatter table + Compiled Truth + Timeline, in-page TOC, ripgrep search,
+staleness pills (fresh / stale / unverified), covers chips, and backlinks.
+
+Design stance: **stdlib-only server, vendored offline assets, localhost-only,
+read-only.** Editing pages via the browser is a deferred follow-up (see
+`references/web.md`). Full technical details (API routes, security posture, asset
+provenance): `references/web.md`.
+
 ## Staleness & catch-up
 
 ```bash
@@ -194,6 +213,7 @@ existing file is the same triage primitive run over a file instead of a chat. Se
 | `references/intake.md` | git + chat streams, watermarks, `catchup`, the vendored recall scripts |
 | `references/activation.md` | hooks, the SessionStart heartbeat, CI backstop, install discipline |
 | `references/claude-md-shim.md` | migrating CLAUDE.md/AGENTS.md; what stays vs what moves |
+| `references/web.md` | `kb serve` — run instructions, API routes, architecture, security |
 
 ## Honest limit
 
