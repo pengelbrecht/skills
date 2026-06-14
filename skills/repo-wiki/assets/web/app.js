@@ -198,8 +198,9 @@
 
   // ── comment feature state ────────────────────────────────────────────────────
 
-  var _currentPagePath = null;   // path of currently loaded page
-  var _currentMarkdown = "";     // raw markdown of current page (for line lookup)
+  var _currentPagePath = null;       // path of currently loaded page
+  var _currentMarkdown = "";         // raw markdown of current page (for line lookup)
+  var _currentFrontmatterLines = 0;  // number of lines occupied by the frontmatter block
 
   // ── comment: floating button ─────────────────────────────────────────────────
 
@@ -378,13 +379,20 @@
       var section = findNearestHeading(_commentPendingRange);
       var lines = findLinesInMarkdown(_currentMarkdown, pageText);
 
+      // Offset line anchors by frontmatter_lines so they match the real on-disk
+      // file line numbers (the server strips frontmatter from the returned markdown,
+      // but the agent reads the full file including frontmatter).
+      var fmLines = _currentFrontmatterLines || 0;
+      var adjustedLine = lines.line != null ? lines.line + fmLines : null;
+      var adjustedEndLine = lines.end_line != null ? lines.end_line + fmLines : null;
+
       var payload = {
         page: _currentPagePath || "",
         selected_text: pageText,
         comment: commentText,
         section: section,
-        line: lines.line,
-        end_line: lines.end_line
+        line: adjustedLine,
+        end_line: adjustedEndLine
       };
 
       submitBtn.disabled = true;
@@ -483,9 +491,12 @@
     var md = data.markdown || "";
     var pagePath = data.path;
 
-    // Cache raw markdown and path for comment line-anchor computation
+    // Cache raw markdown, path, and frontmatter line count for comment line-anchor computation.
+    // frontmatter_lines is the number of lines in the stripped block (both --- delimiters +
+    // any trailing blank line) so line anchors can be offset to match real on-disk numbers.
     _currentMarkdown = md;
     _currentPagePath = pagePath;
+    _currentFrontmatterLines = data.frontmatter_lines || 0;
 
     // Render markdown body via vendored marked
     var bodyHtml = window.marked ? window.marked.parse(md) : "<pre>" + escHtml(md) + "</pre>";
@@ -684,21 +695,9 @@
     }
 
     tree.innerHTML = html;
-
-    // delegate clicks on page links
-    tree.addEventListener("click", function (e) {
-      var a = e.target.closest("a[data-path]");
-      if (!a) return;
-      e.preventDefault();
-      navigateTo(a.dataset.path);
-    });
-
-    // restore hash on load
-    var hash = location.hash.slice(1);
-    if (hash) {
-      var decoded = decodeURIComponent(hash);
-      navigateTo(decoded);
-    }
+    // NOTE: the click handler and the initial hash-restore are wired once at boot
+    // (see the boot section below) — do NOT add them here or they accumulate on
+    // every _refreshSidebar() call.
   }
 
   // ── search ──────────────────────────────────────────────────────────────────
@@ -819,8 +818,7 @@
       _status = statusData;
       // Rebuild the sidebar HTML
       buildSidebar(treeData);
-      // Re-apply active highlight (buildSidebar calls navigateTo via hash — but we don't
-      // want to re-navigate; just set the active class)
+      // Re-apply active highlight WITHOUT re-navigating (hash-restore only runs at boot).
       if (_currentPagePath) setActive(_currentPagePath);
     }).catch(function () { /* non-fatal */ });
   }
@@ -918,6 +916,15 @@
 
   // ── boot ────────────────────────────────────────────────────────────────────
 
+  // Wire the tree click handler ONCE here so it is never duplicated by _refreshSidebar()
+  // calling buildSidebar() on every revision change.
+  tree.addEventListener("click", function (e) {
+    var a = e.target.closest("a[data-path]");
+    if (!a) return;
+    e.preventDefault();
+    navigateTo(a.dataset.path);
+  });
+
   // Fetch staleness status in parallel with the tree — updates sidebar pills when ready.
   fetchStatus();
 
@@ -926,7 +933,15 @@
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.json();
     })
-    .then(buildSidebar)
+    .then(function (data) {
+      buildSidebar(data);
+      // Restore hash navigation ONCE at initial boot only — NOT on sidebar refreshes.
+      var hash = location.hash.slice(1);
+      if (hash) {
+        var decoded = decodeURIComponent(hash);
+        navigateTo(decoded);
+      }
+    })
     .catch(function (err) {
       tree.innerHTML =
         '<div class="tree-error">Failed to load wiki tree: ' + escHtml(String(err)) + "</div>";

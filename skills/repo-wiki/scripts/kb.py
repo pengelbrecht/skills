@@ -490,8 +490,8 @@ def install_comments_hook(root):
     hooks = data.setdefault("hooks", {})
     ups = hooks.setdefault("UserPromptSubmit", [])
     blob = json.dumps(ups)
-    # Idempotency: bail if a kb.py comments invocation is already wired
-    if "repo-wiki/scripts/kb.py" in blob and "comments" in blob:
+    # Idempotency: bail if a kb.py comments list invocation is already wired
+    if "repo-wiki/scripts/kb.py" in blob and "comments list" in blob:
         return False
     cmd = (
         'KB="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}'
@@ -711,18 +711,39 @@ def _make_handler(wiki):
                 try:
                     text = target.read_text(encoding="utf-8", errors="replace")
                     fm = parse_frontmatter(text)
-                    # Strip the leading ---...--- block from markdown body
+                    # Strip the leading ---...--- block from markdown body.
+                    # Count how many lines the frontmatter block occupies (including
+                    # both --- delimiters and any trailing blank line) so the client
+                    # can offset line anchors to match real on-disk line numbers.
                     body = text
+                    frontmatter_lines = 0
                     if text.startswith("---"):
                         end = text.find("\n---", 3)
                         if end != -1:
-                            body = text[end + 4:].lstrip("\n")
+                            # stripped_prefix is text[:end+4] which ends in "\n---"
+                            # (the closing delimiter has no trailing \n in the prefix).
+                            # newline count + 1 gives the number of lines occupied by the
+                            # frontmatter block itself (opening --- through closing ---).
+                            stripped_prefix = text[:end + 4]
+                            frontmatter_lines = stripped_prefix.count("\n") + 1
+                            body = text[end + 4:]
+                            # body now starts with "\n" (line-terminator of the closing ---
+                            # line, already counted above) followed by any blank separator
+                            # lines. Skip the first "\n" (terminator), then count the
+                            # remaining leading blank lines — each is one more file line
+                            # consumed before body content begins.
+                            if body.startswith("\n"):
+                                body = body[1:]  # consume the --- line terminator
+                            leading_blank = len(body) - len(body.lstrip("\n"))
+                            frontmatter_lines += leading_blank
+                            body = body.lstrip("\n")
                     rel_str = str(target.relative_to(wiki))
                     stat = target.stat()
                     self.send_json({
                         "path": rel_str,
                         "frontmatter": fm,
                         "markdown": body,
+                        "frontmatter_lines": frontmatter_lines,
                         "mtime": stat.st_mtime,
                         "size": stat.st_size,
                     })
@@ -760,10 +781,13 @@ def _make_handler(wiki):
 
             # /api/revision — return max mtime across all wiki .md files
             # Used by the client poll to detect any wiki change (new page, edit).
+            # Skip .comments/ and .ingest/ — they are internal state dirs, not wiki content.
             if path == "/api/revision":
                 try:
                     max_mtime = 0.0
                     for p in wiki.rglob("*.md"):
+                        if "/.comments/" in str(p) or "/.ingest/" in str(p):
+                            continue
                         try:
                             mt = p.stat().st_mtime
                             if mt > max_mtime:
@@ -872,6 +896,10 @@ def _make_handler(wiki):
                 # Read body
                 try:
                     length = int(self.headers.get("Content-Length", 0))
+                    # Bound the request body (16 KB is well above the field caps)
+                    if length > 16384:
+                        self.send_json({"error": "request body too large"}, status=413)
+                        return
                     body_bytes = self.rfile.read(length)
                     data = json.loads(body_bytes.decode("utf-8"))
                 except Exception:
@@ -915,8 +943,12 @@ def _make_handler(wiki):
                         self.send_json({"error": "end_line must be an integer or null"}, status=400)
                         return
 
-                # Sandbox page to wiki dir (same pattern as /api/page)
-                if not page or page.startswith("/") or ".." in page.split("/"):
+                # Sandbox page to wiki dir (same pattern as /api/page).
+                # Belt-and-suspenders: also reject percent-encoded traversal sequences
+                # (%2e = '.', %2f = '/').  The resolve()+relative_to() sandwich is the
+                # real gate; this guard catches them at the string level first.
+                if (not page or page.startswith("/") or ".." in page.split("/")
+                        or "%2e" in page.lower() or "%2f" in page.lower()):
                     self.send_json({"error": "invalid page path"}, status=400)
                     return
                 target = (wiki / page).resolve()
@@ -1063,10 +1095,26 @@ def _load_comments(comments_file):
 
 
 def _save_comments(comments_file, records):
-    """Rewrite comments.jsonl with the given records."""
-    with comments_file.open("w", encoding="utf-8") as f:
-        for r in records:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    """Rewrite comments.jsonl atomically (write to temp then rename) with the given records.
+
+    Using a temp file in the same directory then Path.replace() ensures an atomic swap on
+    POSIX so a crash mid-write never truncates the live file.
+    """
+    import tempfile
+    comments_dir = comments_file.parent
+    comments_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=str(comments_dir), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        Path(tmp_path).replace(comments_file)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def cmd_comments(args):
