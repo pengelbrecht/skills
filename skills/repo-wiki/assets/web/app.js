@@ -1,9 +1,4 @@
-/* repo-wiki — app.js — walking skeleton: sidebar tree from /api/tree
- *
- * Seam: clicking a page updates location.hash only — actual rendering
- * lives in the NEXT tick (c05). marked.min.js is vendored and available
- * globally via <script src="/marked.min.js"> for that tick to use.
- */
+/* repo-wiki — app.js — page view: /api/page + frontmatter + body + TOC */
 
 (function () {
   "use strict";
@@ -19,22 +14,158 @@
     });
   }
 
-  function navigateTo(path) {
-    location.hash = encodeURIComponent(path);
-    setActive(path);
-    // content rendering placeholder — next tick wires this up
-    contentInner.innerHTML =
-      '<p class="welcome">Page: <code>' +
-      escHtml(path) +
-      '</code><br><span style="color:var(--muted);font-size:.875rem">Full rendering coming in the next tick.</span></p>';
-  }
-
   function escHtml(s) {
     return s
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  /** Slugify a heading text into an anchor id (same logic as GitHub). */
+  function slugify(text) {
+    return text
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .replace(/[\s_]+/g, "-");
+  }
+
+  /** Render the frontmatter fields we care about as a compact table. */
+  var FM_FIELDS = ["type", "source", "covers", "verified_against", "status"];
+
+  function renderFrontmatterTable(fm) {
+    var rows = FM_FIELDS.filter(function (k) { return fm[k] !== undefined && fm[k] !== ""; });
+    if (!rows.length) return "";
+    var html = '<table class="fm-table"><tbody>';
+    rows.forEach(function (k) {
+      var v = fm[k];
+      if (Array.isArray(v)) v = v.join(", ");
+      html += "<tr><th>" + escHtml(k) + "</th><td>" + escHtml(String(v)) + "</td></tr>";
+    });
+    html += "</tbody></table>";
+    return html;
+  }
+
+  /**
+   * Parse h2/h3 headings from rendered HTML and return [{level, text, id}].
+   * We add id attributes to those headings as a side-effect after insertion.
+   */
+  function buildTocItems(container) {
+    var items = [];
+    container.querySelectorAll("h2, h3").forEach(function (el) {
+      var text = el.textContent.trim();
+      var id = slugify(text);
+      // Ensure unique ids by appending a counter when needed
+      var existing = document.getElementById(id);
+      if (existing && existing !== el) {
+        var n = 2;
+        while (document.getElementById(id + "-" + n)) n++;
+        id = id + "-" + n;
+      }
+      el.id = id;
+      items.push({ level: parseInt(el.tagName[1], 10), text: text, id: id });
+    });
+    return items;
+  }
+
+  function renderToc(items) {
+    if (!items.length) return "";
+    var html = '<nav class="page-toc" aria-label="On this page"><p class="toc-title">On this page</p><ul>';
+    items.forEach(function (item) {
+      html +=
+        '<li class="toc-' + item.level + '">' +
+        '<a href="#' + escHtml(item.id) + '">' + escHtml(item.text) + "</a></li>";
+    });
+    html += "</ul></nav>";
+    return html;
+  }
+
+  /** Wire IntersectionObserver to highlight the active TOC link (cheap, no layout). */
+  function wireActiveToc(contentEl) {
+    var tocLinks = document.querySelectorAll(".page-toc a[href^='#']");
+    if (!tocLinks.length || !window.IntersectionObserver) return;
+    var active = null;
+    var observer = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            var id = entry.target.id;
+            tocLinks.forEach(function (a) {
+              var on = a.getAttribute("href") === "#" + id;
+              a.classList.toggle("toc-active", on);
+              if (on) active = a;
+            });
+          }
+        });
+      },
+      { rootMargin: "-10% 0px -80% 0px", threshold: 0 }
+    );
+    contentEl.querySelectorAll("h2, h3").forEach(function (h) { observer.observe(h); });
+  }
+
+  // ── page rendering ──────────────────────────────────────────────────────────
+
+  function navigateTo(path) {
+    location.hash = encodeURIComponent(path);
+    setActive(path);
+
+    // Show a loading state while fetching
+    contentInner.innerHTML = '<p class="welcome">Loading…</p>';
+
+    fetch("/api/page?path=" + encodeURIComponent(path))
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || "HTTP " + r.status); });
+        return r.json();
+      })
+      .then(function (data) {
+        renderPage(data);
+      })
+      .catch(function (err) {
+        contentInner.innerHTML =
+          '<p class="page-error">Failed to load <code>' + escHtml(path) + "</code>: " + escHtml(String(err)) + "</p>";
+      });
+  }
+
+  function renderPage(data) {
+    var fm = data.frontmatter || {};
+    var md = data.markdown || "";
+
+    // Render markdown body via vendored marked
+    var bodyHtml = window.marked ? window.marked.parse(md) : "<pre>" + escHtml(md) + "</pre>";
+
+    // Build the page header area
+    // Placeholder spot: staleness badge + covers chips + backlinks go here in later ticks (rcs)
+    var title = fm.title || data.path.replace(/^.*\//, "").replace(/\.md$/, "");
+    var headerHtml =
+      '<header class="page-header">' +
+      "<h1>" + escHtml(title) + "</h1>" +
+      '<div class="page-meta-placeholder"><!-- staleness badge + covers chips + backlinks (rcs) --></div>' +
+      renderFrontmatterTable(fm) +
+      "</header>";
+
+    // Assemble the layout: TOC rail + body column
+    // We insert body first into a temp container to query headings for TOC
+    var tempDiv = document.createElement("div");
+    tempDiv.innerHTML = bodyHtml;
+
+    var tocItems = buildTocItems(tempDiv);
+
+    // Build final layout
+    var layoutHtml =
+      '<div class="page-layout">' +
+      '<article class="page-body">' + headerHtml + tempDiv.innerHTML + "</article>" +
+      renderToc(tocItems) +
+      "</div>";
+
+    contentInner.innerHTML = layoutHtml;
+
+    // Wire TOC active tracking
+    wireActiveToc(contentInner);
+
+    // Scroll content pane to top
+    var contentPane = document.getElementById("content");
+    if (contentPane) contentPane.scrollTop = 0;
   }
 
   function pageLabel(page) {

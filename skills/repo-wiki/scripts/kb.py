@@ -97,13 +97,14 @@ def parse_frontmatter(text):
                 items.append(re.sub(r"^\s*-\s+", "", block[j]).strip())
                 j += 1
             fm[key] = items if items else ""
-            i = j
+            i = j  # j already points past the list items; do NOT add 1 again below
         elif val.startswith("[") and val.endswith("]"):
             inner = val[1:-1].strip()
             fm[key] = [x.strip().strip("'\"") for x in inner.split(",") if x.strip()]
+            i += 1
         else:
             fm[key] = val.strip("'\"")
-        i += 1
+            i += 1
     return fm
 
 
@@ -554,7 +555,7 @@ def _make_handler(wiki):
             self.wfile.write(data)
 
         def do_GET(self):  # noqa: N802
-            from urllib.parse import urlparse
+            from urllib.parse import urlparse, parse_qs
             parsed = urlparse(self.path)
             path = parsed.path
 
@@ -563,6 +564,43 @@ def _make_handler(wiki):
                 try:
                     data = _build_tree(wiki)
                     self.send_json(data)
+                except Exception as exc:
+                    self.send_json({"error": str(exc)}, status=500)
+                return
+
+            # /api/page?path=<rel>
+            if path == "/api/page":
+                qs = parse_qs(parsed.query)
+                rel_parts = qs.get("path", [])
+                if not rel_parts:
+                    self.send_json({"error": "missing ?path="}, status=400)
+                    return
+                rel = rel_parts[0]
+                # Reject empty, absolute paths, or paths containing ".."
+                if not rel or rel.startswith("/") or ".." in rel.split("/"):
+                    self.send_json({"error": "invalid path"}, status=400)
+                    return
+                target = (wiki / rel).resolve()
+                # Sandbox: target must be inside wiki
+                try:
+                    target.relative_to(wiki)
+                except ValueError:
+                    self.send_json({"error": "path outside wiki"}, status=403)
+                    return
+                if not target.exists() or not target.is_file() or target.suffix != ".md":
+                    self.send_json({"error": "not found"}, status=400)
+                    return
+                try:
+                    text = target.read_text(encoding="utf-8", errors="replace")
+                    fm = parse_frontmatter(text)
+                    # Strip the leading ---...--- block from markdown body
+                    body = text
+                    if text.startswith("---"):
+                        end = text.find("\n---", 3)
+                        if end != -1:
+                            body = text[end + 4:].lstrip("\n")
+                    rel_str = str(target.relative_to(wiki))
+                    self.send_json({"path": rel_str, "frontmatter": fm, "markdown": body})
                 except Exception as exc:
                     self.send_json({"error": str(exc)}, status=500)
                 return

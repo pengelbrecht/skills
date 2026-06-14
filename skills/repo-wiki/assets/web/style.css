@@ -2,6 +2,7 @@
 
 /* ── design tokens ── */
 :root {
+  --toc-w: 200px;
   --bg:       #fafafa;
   --surface:  #ffffff;
   --text:     #1a1a1d;
@@ -268,4 +269,155 @@ body {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: .04em;
+}
+
+/* ── page layout: body + TOC right-rail ── */
+.page-layout {
+  display: flex;
+  gap: var(--sp-8);
+  align-items: flex-start;
+}
+
+.page-body {
+  flex: 1;
+  min-width: 0; /* allow shrinking below content natural width */
+}
+
+/* ── page header ── */
+.page-header {
+  margin-bottom: var(--sp-8);
+}
+
+.page-header h1 {
+  font-size: 1.6rem;
+  font-weight: 600;
+  margin-bottom: var(--sp-3);
+  line-height: 1.25;
+}
+
+/* Override the generic h1 rule inside page-body so the header h1 wins */
+.page-body h1 {
+  font-size: 1.6rem;
+  font-weight: 600;
+  margin-bottom: var(--sp-3);
+}
+
+.page-meta-placeholder {
+  /* Placeholder for staleness badge + covers chips + backlinks (rcs). Empty for now. */
+  display: none;
+}
+
+/* ── frontmatter table ── */
+.fm-table {
+  width: auto;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-bottom: var(--sp-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.fm-table th,
+.fm-table td {
+  text-align: left;
+  padding: var(--sp-1) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.fm-table tr:last-child th,
+.fm-table tr:last-child td {
+  border-bottom: none;
+}
+
+.fm-table th {
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  background: var(--surface);
+  width: 9rem;
+}
+
+.fm-table td {
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* ── page errors ── */
+.page-error {
+  color: #c0392b;
+  font-size: 0.9rem;
+  padding: var(--sp-4) 0;
+}
+
+/* ── TOC right-rail ── */
+.page-toc {
+  flex-shrink: 0;
+  width: var(--toc-w);
+  position: sticky;
+  top: var(--sp-8);
+  max-height: calc(100vh - var(--sp-12) * 2);
+  overflow-y: auto;
+  align-self: flex-start;
+}
+
+.toc-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: var(--sp-2);
+}
+
+.page-toc ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.page-toc li {
+  line-height: 1.4;
+}
+
+.page-toc a {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 2px 0;
+  text-decoration: none;
+  transition: color 80ms;
+  border-left: 2px solid transparent;
+  padding-left: var(--sp-2);
+}
+
+.page-toc a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.page-toc a.toc-active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+/* h3 items indented */
+.page-toc .toc-3 a {
+  padding-left: calc(var(--sp-2) + var(--sp-3));
+  font-size: 0.775rem;
+}
+
+/* ── heading anchor offset (so fixed TOC doesn't cover headings on scroll) ── */
+#content-inner h2,
+#content-inner h3 {
+  scroll-margin-top: var(--sp-8);
+}
+
+/* ── TOC hides on narrow screens ── */
+@media (max-width: 900px) {
+  .page-toc {
+    display: none;
+  }
 }
