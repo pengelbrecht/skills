@@ -780,6 +780,142 @@
     });
   }
 
+  // ── live auto-refresh (poll mtime) ─────────────────────────────────────────
+  //
+  // Every POLL_MS:
+  //   1. If a page is open and the modal is closed and no text is selected,
+  //      check /api/changed?path=<current> — if mtime increased, re-fetch + re-render
+  //      in place, preserving scroll position.
+  //   2. Check /api/revision (max mtime across all .md files) — if it changed,
+  //      refresh the sidebar tree + status pills so new/edited pages appear.
+  //
+  // One interval, cleared and reset on navigation so a stale path never fires.
+
+  var POLL_MS = 1500;
+
+  var _pollTimer = null;
+  var _lastKnownMtime = null;   // mtime of the currently-viewed file (from /api/page)
+  var _lastRevision   = null;   // last seen /api/revision value
+
+  /** True when we should skip the page refresh (modal open or text selected). */
+  function _shouldSkipRefresh() {
+    // Comment modal is open
+    if (_commentModal) return true;
+    // Text is currently selected
+    var sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim()) return true;
+    return false;
+  }
+
+  /** Refresh the sidebar tree and status pills without losing the active page state. */
+  function _refreshSidebar() {
+    Promise.all([
+      fetch("/api/tree").then(function (r) { return r.json(); }),
+      fetch("/api/status").then(function (r) { return r.json(); })
+    ]).then(function (results) {
+      var treeData   = results[0];
+      var statusData = results[1];
+      // Update status state so pills render correctly
+      _status = statusData;
+      // Rebuild the sidebar HTML
+      buildSidebar(treeData);
+      // Re-apply active highlight (buildSidebar calls navigateTo via hash — but we don't
+      // want to re-navigate; just set the active class)
+      if (_currentPagePath) setActive(_currentPagePath);
+    }).catch(function () { /* non-fatal */ });
+  }
+
+  /**
+   * Re-render the current page in place, preserving scroll position.
+   * Called when the poll detects that the file's mtime has increased.
+   */
+  function _refreshCurrentPage(newMtime) {
+    if (!_currentPagePath) return;
+    var contentPane = document.getElementById("content");
+    var savedScroll = contentPane ? contentPane.scrollTop : 0;
+
+    fetch("/api/page?path=" + encodeURIComponent(_currentPagePath))
+      .then(function (r) {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(function (data) {
+        if (!data || data.error) return;
+        // Only re-render if we're still on the same page
+        if (data.path !== _currentPagePath) return;
+        // Update the known mtime before re-rendering (renderPage sets _currentMarkdown etc.)
+        _lastKnownMtime = data.mtime != null ? data.mtime : newMtime;
+        renderPage(data);
+        // Restore scroll (renderPage resets to 0; override immediately after)
+        if (contentPane && savedScroll > 0) {
+          contentPane.scrollTop = savedScroll;
+        }
+        // Keep active highlight correct
+        setActive(_currentPagePath);
+      })
+      .catch(function () { /* non-fatal */ });
+  }
+
+  /** One tick of the poll loop. */
+  function _pollTick() {
+    var skip = _shouldSkipRefresh();
+
+    // — Page freshness check —
+    if (!skip && _currentPagePath && _lastKnownMtime != null) {
+      (function (path, knownMtime) {
+        fetch("/api/changed?path=" + encodeURIComponent(path))
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.mtime != null && data.mtime > knownMtime) {
+              _refreshCurrentPage(data.mtime);
+            }
+          })
+          .catch(function () { /* non-fatal */ });
+      })(_currentPagePath, _lastKnownMtime);
+    }
+
+    // — Sidebar revision check (always, regardless of modal/selection) —
+    fetch("/api/revision")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.revision == null) return;
+        if (_lastRevision === null) {
+          // First reading — just store it, don't trigger a refresh
+          _lastRevision = data.revision;
+          return;
+        }
+        if (data.revision > _lastRevision) {
+          _lastRevision = data.revision;
+          _refreshSidebar();
+        }
+      })
+      .catch(function () { /* non-fatal */ });
+  }
+
+  /** Start (or restart) the poll timer. Called on every navigation. */
+  function _startPoll() {
+    if (_pollTimer) clearInterval(_pollTimer);
+    _pollTimer = setInterval(_pollTick, POLL_MS);
+  }
+
+  // Patch navigateTo to capture the mtime from /api/page and (re)start the poll.
+  var _origNavigateTo = navigateTo;
+  navigateTo = function (path) {
+    // Reset known mtime before the new page loads; will be set after renderPage
+    _lastKnownMtime = null;
+    _origNavigateTo(path);
+    _startPoll();
+  };
+
+  // Patch renderPage to capture mtime from the API response.
+  var _origRenderPage = renderPage;
+  renderPage = function (data) {
+    _origRenderPage(data);
+    if (data.mtime != null) {
+      _lastKnownMtime = data.mtime;
+    }
+  };
+
   // ── boot ────────────────────────────────────────────────────────────────────
 
   // Fetch staleness status in parallel with the tree — updates sidebar pills when ready.
@@ -795,4 +931,7 @@
       tree.innerHTML =
         '<div class="tree-error">Failed to load wiki tree: ' + escHtml(String(err)) + "</div>";
     });
+
+  // Start the revision poll immediately so the sidebar also refreshes when no page is open.
+  _startPoll();
 })();

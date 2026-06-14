@@ -674,7 +674,59 @@ def _make_handler(wiki):
                         if end != -1:
                             body = text[end + 4:].lstrip("\n")
                     rel_str = str(target.relative_to(wiki))
-                    self.send_json({"path": rel_str, "frontmatter": fm, "markdown": body})
+                    stat = target.stat()
+                    self.send_json({
+                        "path": rel_str,
+                        "frontmatter": fm,
+                        "markdown": body,
+                        "mtime": stat.st_mtime,
+                        "size": stat.st_size,
+                    })
+                except Exception as exc:
+                    self.send_json({"error": str(exc)}, status=500)
+                return
+
+            # /api/changed?path=<rel> — return mtime (and size) for a single wiki file
+            # Used by the client poll to detect in-place edits without re-fetching content.
+            if path == "/api/changed":
+                qs = parse_qs(parsed.query)
+                rel_parts = qs.get("path", [])
+                if not rel_parts:
+                    self.send_json({"error": "missing ?path="}, status=400)
+                    return
+                rel = rel_parts[0]
+                if not rel or rel.startswith("/") or ".." in rel.split("/"):
+                    self.send_json({"error": "invalid path"}, status=400)
+                    return
+                target = (wiki / rel).resolve()
+                try:
+                    target.relative_to(wiki)
+                except ValueError:
+                    self.send_json({"error": "path outside wiki"}, status=400)
+                    return
+                if not target.exists() or not target.is_file() or target.suffix != ".md":
+                    self.send_json({"error": "not found"}, status=400)
+                    return
+                try:
+                    stat = target.stat()
+                    self.send_json({"mtime": stat.st_mtime, "size": stat.st_size})
+                except Exception as exc:
+                    self.send_json({"error": str(exc)}, status=500)
+                return
+
+            # /api/revision — return max mtime across all wiki .md files
+            # Used by the client poll to detect any wiki change (new page, edit).
+            if path == "/api/revision":
+                try:
+                    max_mtime = 0.0
+                    for p in wiki.rglob("*.md"):
+                        try:
+                            mt = p.stat().st_mtime
+                            if mt > max_mtime:
+                                max_mtime = mt
+                        except OSError:
+                            pass
+                    self.send_json({"revision": max_mtime})
                 except Exception as exc:
                     self.send_json({"error": str(exc)}, status=500)
                 return
