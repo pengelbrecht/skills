@@ -659,3 +659,168 @@ body {
   color: var(--muted);
   font-style: italic;
 }
+
+/* ── comment: floating selection button ── */
+.comment-float-btn {
+  position: absolute;
+  display: none;
+  align-items: center;
+  gap: var(--sp-1);
+  z-index: 900;
+  padding: var(--sp-1) var(--sp-3);
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+  font-size: 0.8125rem;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  transition: box-shadow 80ms;
+}
+
+.comment-float-btn:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .16);
+}
+
+.comment-float-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── comment: modal overlay + dialog ── */
+.comment-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, .35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+}
+
+.comment-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .18);
+  padding: var(--sp-6);
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.comment-modal-preview {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  background: rgba(127, 127, 127, .07);
+  border-left: 3px solid var(--border);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  word-break: break-word;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.comment-modal-textarea {
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+  outline: none;
+  line-height: 1.5;
+}
+
+.comment-modal-textarea:focus-visible,
+.comment-modal-textarea:focus {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.comment-modal-error {
+  font-size: 0.8125rem;
+  color: #c0392b;
+  margin: 0;
+}
+
+.comment-modal-actions {
+  display: flex;
+  gap: var(--sp-2);
+  justify-content: flex-end;
+}
+
+.comment-modal-submit {
+  padding: var(--sp-1) var(--sp-4);
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 80ms;
+}
+
+.comment-modal-submit:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.comment-modal-submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.comment-modal-submit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.comment-modal-cancel {
+  padding: var(--sp-1) var(--sp-4);
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 80ms;
+}
+
+.comment-modal-cancel:hover {
+  background: rgba(127, 127, 127, .08);
+}
+
+.comment-modal-cancel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.comment-modal-success {
+  font-size: 0.9375rem;
+  color: var(--text);
+  text-align: center;
+  padding: var(--sp-4) 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .comment-modal-overlay {
+    background: rgba(0, 0, 0, .55);
+  }
+  .comment-modal {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, .45);
+  }
+}

@@ -196,10 +196,296 @@
     return renderPill(path);
   }
 
+  // ── comment feature state ────────────────────────────────────────────────────
+
+  var _currentPagePath = null;   // path of currently loaded page
+  var _currentMarkdown = "";     // raw markdown of current page (for line lookup)
+
+  // ── comment: floating button ─────────────────────────────────────────────────
+
+  var _commentBtn = null;
+  var _commentModal = null;
+  var _commentPendingRange = null;  // saved Range when modal opens
+
+  function ensureCommentBtn() {
+    if (_commentBtn) return _commentBtn;
+    _commentBtn = document.createElement("button");
+    _commentBtn.className = "comment-float-btn";
+    _commentBtn.textContent = "💬 Comment";
+    _commentBtn.setAttribute("aria-label", "Add comment to selection");
+    document.body.appendChild(_commentBtn);
+    _commentBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var sel = window.getSelection();
+      if (sel && sel.rangeCount) {
+        _commentPendingRange = sel.getRangeAt(0).cloneRange();
+      }
+      openCommentModal();
+    });
+    return _commentBtn;
+  }
+
+  function hideCommentBtn() {
+    if (_commentBtn) {
+      _commentBtn.style.display = "none";
+    }
+  }
+
+  /** Return the .page-body article element if it exists, else null. */
+  function getPageBodyEl() {
+    return contentInner.querySelector("article.page-body");
+  }
+
+  /**
+   * Return true if the given Node is fully inside the page body content area
+   * (the <article class="page-body">), but NOT inside the page-header (title,
+   * frontmatter table, etc.) or the backlinks section.
+   */
+  function isInsideContentBody(node) {
+    var body = getPageBodyEl();
+    if (!body) return false;
+    // Walk up from node to see if it's inside page-body
+    var el = node.nodeType === 3 ? node.parentElement : node;
+    if (!body.contains(el)) return false;
+    // Exclude page-header (title, fm table)
+    var header = body.querySelector(".page-header");
+    if (header && header.contains(el)) return false;
+    // Exclude backlinks section
+    var backlinks = body.querySelector(".backlinks-section");
+    if (backlinks && backlinks.contains(el)) return false;
+    return true;
+  }
+
+  document.addEventListener("selectionchange", function () {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+      hideCommentBtn();
+      return;
+    }
+    // Selection must be non-empty
+    var selText = sel.toString();
+    if (!selText.trim()) {
+      hideCommentBtn();
+      return;
+    }
+    // Check both anchor and focus nodes are inside content body
+    if (sel.rangeCount === 0) {
+      hideCommentBtn();
+      return;
+    }
+    var range = sel.getRangeAt(0);
+    if (!isInsideContentBody(range.startContainer) ||
+        !isInsideContentBody(range.endContainer)) {
+      hideCommentBtn();
+      return;
+    }
+
+    // Position the floating button near the end of the selection
+    var rect = range.getBoundingClientRect();
+    var btn = ensureCommentBtn();
+    btn.style.display = "flex";
+    // Position just below the selection rectangle
+    var top = rect.bottom + window.scrollY + 6;
+    var left = rect.left + window.scrollX + (rect.width / 2);
+    btn.style.top = top + "px";
+    btn.style.left = left + "px";
+  });
+
+  // Hide the button when clicking outside (but not when clicking the button or modal)
+  document.addEventListener("mousedown", function (e) {
+    if (_commentBtn && e.target !== _commentBtn &&
+        !(_commentModal && _commentModal.contains(e.target))) {
+      hideCommentBtn();
+    }
+  });
+
+  // ── comment: modal ───────────────────────────────────────────────────────────
+
+  function openCommentModal() {
+    var sel = window.getSelection();
+    var selectedText = sel ? sel.toString() : "";
+    if (!selectedText.trim()) return;
+
+    hideCommentBtn();
+    if (_commentModal) _commentModal.remove();
+
+    var modal = document.createElement("div");
+    modal.className = "comment-modal-overlay";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-label", "Add a comment");
+
+    var previewText = selectedText.length > 120
+      ? selectedText.slice(0, 120) + "…"
+      : selectedText;
+
+    modal.innerHTML =
+      '<div class="comment-modal">' +
+        '<p class="comment-modal-preview">' + escHtml(previewText) + '</p>' +
+        '<textarea class="comment-modal-textarea" placeholder="Your comment…" rows="4"></textarea>' +
+        '<p class="comment-modal-error" hidden></p>' +
+        '<div class="comment-modal-actions">' +
+          '<button class="comment-modal-submit" type="button">Submit</button>' +
+          '<button class="comment-modal-cancel" type="button">Cancel</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(modal);
+    _commentModal = modal;
+
+    var textarea = modal.querySelector(".comment-modal-textarea");
+    var submitBtn = modal.querySelector(".comment-modal-submit");
+    var cancelBtn = modal.querySelector(".comment-modal-cancel");
+    var errorEl = modal.querySelector(".comment-modal-error");
+
+    // Focus the textarea
+    setTimeout(function () { textarea.focus(); }, 0);
+
+    function closeModal() {
+      modal.remove();
+      _commentModal = null;
+      _commentPendingRange = null;
+    }
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.hidden = false;
+    }
+
+    cancelBtn.addEventListener("click", closeModal);
+
+    // Click-outside closes
+    modal.addEventListener("mousedown", function (e) {
+      if (e.target === modal) closeModal();
+    });
+
+    // Esc closes
+    modal.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeModal();
+    });
+
+    submitBtn.addEventListener("click", function () {
+      var commentText = textarea.value.trim();
+      if (!commentText) {
+        showError("Please enter a comment.");
+        textarea.focus();
+        return;
+      }
+
+      // Gather data
+      var pageText = selectedText;
+      var section = findNearestHeading(_commentPendingRange);
+      var lines = findLinesInMarkdown(_currentMarkdown, pageText);
+
+      var payload = {
+        page: _currentPagePath || "",
+        selected_text: pageText,
+        comment: commentText,
+        section: section,
+        line: lines.line,
+        end_line: lines.end_line
+      };
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Sending…";
+      errorEl.hidden = true;
+
+      fetch("/api/comment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+        .then(function (r) {
+          return r.json().then(function (d) { return { ok: r.ok, data: d }; });
+        })
+        .then(function (res) {
+          if (!res.ok) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Submit";
+            showError(res.data.error || "Server error");
+            return;
+          }
+          // Success — show brief confirmation then close
+          modal.querySelector(".comment-modal").innerHTML =
+            '<p class="comment-modal-success">Comment sent.</p>';
+          // Clear selection
+          if (window.getSelection) window.getSelection().removeAllRanges();
+          setTimeout(closeModal, 1200);
+        })
+        .catch(function (err) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Submit";
+          showError("Network error: " + String(err));
+        });
+    });
+  }
+
+  /**
+   * Find the nearest preceding heading text relative to the saved selection range.
+   * Walks the DOM backwards from the range start to find the closest h2/h3/h4/h5.
+   */
+  function findNearestHeading(range) {
+    if (!range) return "";
+    var body = getPageBodyEl();
+    if (!body) return "";
+    // Collect all headings in body (excluding page-header)
+    var headings = [];
+    body.querySelectorAll("h2, h3, h4, h5").forEach(function (h) {
+      // Skip headings inside the page-header
+      var header = body.querySelector(".page-header");
+      if (header && header.contains(h)) return;
+      headings.push(h);
+    });
+    if (!headings.length) return "";
+
+    // Find the last heading that comes before the selection start
+    var startNode = range.startContainer;
+    var best = null;
+    headings.forEach(function (h) {
+      // compareDocumentPosition: 4 means startNode follows h
+      var pos = h.compareDocumentPosition(startNode);
+      // DOCUMENT_POSITION_FOLLOWING = 4, or contains = 8+4
+      if (pos & 4 /* following */ || pos & 8 /* contained by */) {
+        best = h;
+      }
+    });
+    return best ? best.textContent.trim() : "";
+  }
+
+  /**
+   * Given raw markdown and a selected text string, find the 1-based start line
+   * and end_line of the first occurrence. Returns {line, end_line} — both null
+   * if not found.
+   */
+  function findLinesInMarkdown(markdown, selectedText) {
+    if (!markdown || !selectedText) return { line: null, end_line: null };
+    var idx = markdown.indexOf(selectedText);
+    if (idx === -1) {
+      // Try trimmed version (whitespace collapse)
+      var trimmed = selectedText.trim();
+      idx = markdown.indexOf(trimmed);
+      if (idx === -1) return { line: null, end_line: null };
+      selectedText = trimmed;
+    }
+    // Count newlines before idx for start line
+    var before = markdown.slice(0, idx);
+    var startLine = before.split("\n").length;  // 1-based
+    var selLines = selectedText.split("\n").length;
+    var endLine = startLine + selLines - 1;
+    return { line: startLine, end_line: endLine };
+  }
+
+  // ── page rendering ──────────────────────────────────────────────────────────
+
   function renderPage(data) {
     var fm = data.frontmatter || {};
     var md = data.markdown || "";
     var pagePath = data.path;
+
+    // Cache raw markdown and path for comment line-anchor computation
+    _currentMarkdown = md;
+    _currentPagePath = pagePath;
 
     // Render markdown body via vendored marked
     var bodyHtml = window.marked ? window.marked.parse(md) : "<pre>" + escHtml(md) + "</pre>";
