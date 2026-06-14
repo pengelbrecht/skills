@@ -766,6 +766,108 @@ def _make_handler(wiki):
 
             self.send_error(404, "Not found")
 
+        def do_POST(self):  # noqa: N802
+            from urllib.parse import urlparse
+            parsed = urlparse(self.path)
+            path = parsed.path
+
+            # /api/comment — append a human comment record
+            if path == "/api/comment":
+                # Read body
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body_bytes = self.rfile.read(length)
+                    data = json.loads(body_bytes.decode("utf-8"))
+                except Exception:
+                    self.send_json({"error": "invalid JSON body"}, status=400)
+                    return
+
+                # Extract fields
+                page = data.get("page", "")
+                line = data.get("line")
+                end_line = data.get("end_line")
+                section = data.get("section", "") or ""
+                selected_text = data.get("selected_text", "") or ""
+                comment = data.get("comment", "") or ""
+
+                # Validate required non-empty fields
+                if not comment or not comment.strip():
+                    self.send_json({"error": "comment is required and must be non-empty"}, status=400)
+                    return
+                if not selected_text or not selected_text.strip():
+                    self.send_json({"error": "selected_text is required and must be non-empty"}, status=400)
+                    return
+
+                # Size caps
+                if len(comment) > 4000:
+                    self.send_json({"error": "comment exceeds 4000 character limit"}, status=400)
+                    return
+                if len(selected_text) > 2000:
+                    self.send_json({"error": "selected_text exceeds 2000 character limit"}, status=400)
+                    return
+                if len(section) > 200:
+                    self.send_json({"error": "section exceeds 200 character limit"}, status=400)
+                    return
+
+                # Validate line/end_line are ints or null
+                if line is not None:
+                    if not isinstance(line, int):
+                        self.send_json({"error": "line must be an integer or null"}, status=400)
+                        return
+                if end_line is not None:
+                    if not isinstance(end_line, int):
+                        self.send_json({"error": "end_line must be an integer or null"}, status=400)
+                        return
+
+                # Sandbox page to wiki dir (same pattern as /api/page)
+                if not page or page.startswith("/") or ".." in page.split("/"):
+                    self.send_json({"error": "invalid page path"}, status=400)
+                    return
+                target = (wiki / page).resolve()
+                try:
+                    target.relative_to(wiki)
+                except ValueError:
+                    self.send_json({"error": "page path outside wiki"}, status=400)
+                    return
+                if not target.exists() or not target.is_file() or target.suffix != ".md":
+                    self.send_json({"error": "page not found or not a .md file"}, status=400)
+                    return
+
+                # Build record
+                import secrets
+                import time as _time
+                ts_ms = int(_time.time() * 1000)
+                rand_hex = secrets.token_hex(4)
+                comment_id = f"{ts_ms:x}-{rand_hex}"
+                ts_iso = datetime.now(timezone.utc).isoformat()
+                record = {
+                    "id": comment_id,
+                    "page": str(target.relative_to(wiki)),
+                    "line": line,
+                    "end_line": end_line,
+                    "section": section,
+                    "selected_text": selected_text,
+                    "comment": comment,
+                    "ts": ts_iso,
+                    "status": "open",
+                }
+
+                # Append to <wiki>/.comments/comments.jsonl
+                comments_dir = wiki / ".comments"
+                comments_dir.mkdir(exist_ok=True)
+                comments_file = comments_dir / "comments.jsonl"
+                try:
+                    with comments_file.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                except Exception as exc:
+                    self.send_json({"error": f"failed to write comment: {exc}"}, status=500)
+                    return
+
+                self.send_json({"ok": True, "id": comment_id}, status=201)
+                return
+
+            self.send_error(404, "Not found")
+
     return WikiHandler
 
 
@@ -830,6 +932,133 @@ def cmd_serve(args):
     return 0
 
 
+# ── comments helpers ──────────────────────────────────────────────────────────
+
+def _resolve_wiki_for_comments(args):
+    """Resolve the wiki directory for comments commands."""
+    if args.wiki:
+        wiki = Path(args.wiki).resolve()
+    else:
+        try:
+            root = repo_root()
+        except SystemExit:
+            sys.exit("not inside a git repo and --wiki not specified")
+        wiki = (root / "repo-wiki").resolve()
+    if not wiki.exists():
+        sys.exit(f"wiki directory does not exist: {wiki}")
+    return wiki
+
+
+def _load_comments(comments_file):
+    """Load all comment records from comments.jsonl; skip malformed lines."""
+    records = []
+    if not comments_file.exists():
+        return records
+    with comments_file.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return records
+
+
+def _save_comments(comments_file, records):
+    """Rewrite comments.jsonl with the given records."""
+    with comments_file.open("w", encoding="utf-8") as f:
+        for r in records:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+def cmd_comments(args):
+    wiki = _resolve_wiki_for_comments(args)
+    comments_dir = wiki / ".comments"
+    comments_file = comments_dir / "comments.jsonl"
+
+    subcmd = getattr(args, "comments_cmd", None) or "list"
+
+    if subcmd == "list":
+        records = _load_comments(comments_file)
+        since = getattr(args, "since", None)
+        as_json = getattr(args, "json", False)
+
+        # Apply --since filter (by id or ts) for machine-readable output
+        if since and as_json:
+            # Find the position of the cursor record and return everything after it
+            idx = None
+            for i, r in enumerate(records):
+                if r.get("id") == since or r.get("ts", "") == since:
+                    idx = i
+                    break
+            if idx is not None:
+                records = records[idx + 1:]
+            else:
+                # cursor not found — return all (safe default for a watch-loop)
+                pass
+
+        open_records = [r for r in records if r.get("status") == "open"]
+
+        if as_json:
+            print(json.dumps(open_records, ensure_ascii=False, indent=2))
+        else:
+            if not open_records:
+                print("No open comments.")
+                return 0
+            for r in open_records:
+                loc = r.get("page", "")
+                line = r.get("line")
+                if line is not None:
+                    loc += f":{line}"
+                section = r.get("section", "")
+                snippet = r.get("selected_text", "")
+                if len(snippet) > 60:
+                    snippet = snippet[:60] + "…"
+                comment_text = r.get("comment", "")
+                if len(comment_text) > 80:
+                    comment_text = comment_text[:80] + "…"
+                print(f"[{r.get('id')}] {loc}")
+                if section:
+                    print(f"  § {section}")
+                print(f"  > {snippet!r}")
+                print(f"  ✎ {comment_text}")
+                print()
+        return 0
+
+    if subcmd == "resolve":
+        comment_id = getattr(args, "id", None)
+        note = getattr(args, "note", None)
+        if not comment_id:
+            sys.exit("resolve requires an <id> argument")
+        records = _load_comments(comments_file)
+        found = False
+        for r in records:
+            if r.get("id") == comment_id:
+                r["status"] = "resolved"
+                r["resolved_ts"] = datetime.now(timezone.utc).isoformat()
+                if note:
+                    r["resolved_note"] = note
+                found = True
+                break
+        if not found:
+            sys.exit(f"comment id not found: {comment_id}")
+        _save_comments(comments_file, records)
+        print(f"resolved: {comment_id}")
+        return 0
+
+    if subcmd == "clear":
+        records = _load_comments(comments_file)
+        remaining = [r for r in records if r.get("status") == "open"]
+        removed = len(records) - len(remaining)
+        _save_comments(comments_file, remaining)
+        print(f"cleared {removed} resolved comment(s); {len(remaining)} open remain.")
+        return 0
+
+    sys.exit(f"unknown comments subcommand: {subcmd}")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="kb.py", description="repo-wiki command line")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -857,6 +1086,25 @@ def main():
     svp.add_argument("--port", type=int, default=8347, help="port to listen on (default: 8347)")
     svp.add_argument("--wiki", default=None, help="path to wiki dir (default: <repo>/repo-wiki)")
 
+    # comments subcommand with its own sub-subcommands
+    cosp = sub.add_parser("comments", help="manage human→agent comment channel")
+    cosp.add_argument("--wiki", default=None, help="path to wiki dir (default: <repo>/repo-wiki)")
+    cosub = cosp.add_subparsers(dest="comments_cmd")
+
+    co_list = cosub.add_parser("list", help="list open comments (default action)")
+    co_list.add_argument("--json", action="store_true", help="machine-readable JSON output")
+    co_list.add_argument("--since", default=None, metavar="ID_OR_TS",
+                         help="return only comments after this id or timestamp (with --json)")
+    co_list.add_argument("--wiki", default=None, help="path to wiki dir (overrides parent --wiki)")
+
+    co_res = cosub.add_parser("resolve", help="mark a comment resolved")
+    co_res.add_argument("id", help="comment id to resolve")
+    co_res.add_argument("--note", default=None, help="optional resolution note")
+    co_res.add_argument("--wiki", default=None, help="path to wiki dir (overrides parent --wiki)")
+
+    co_clear = cosub.add_parser("clear", help="remove all resolved comments from the file")
+    co_clear.add_argument("--wiki", default=None, help="path to wiki dir (overrides parent --wiki)")
+
     args = ap.parse_args()
     dispatch = {
         "init": cmd_init,
@@ -867,6 +1115,7 @@ def main():
         "session-start": cmd_session_start,
         "reconcile": cmd_reconcile,
         "serve": cmd_serve,
+        "comments": cmd_comments,
     }
     sys.exit(dispatch[args.cmd](args) or 0)
 

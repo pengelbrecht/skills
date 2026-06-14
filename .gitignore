@@ -33,3 +33,6 @@ uv.lock
 
 # repo-wiki local ingest state
 repo-wiki/.ingest/
+
+# repo-wiki comment channel (local state; not committed)
+repo-wiki/.comments/
