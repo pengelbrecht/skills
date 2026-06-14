@@ -6,6 +6,58 @@
   const tree = document.getElementById("tree");
   const contentInner = document.getElementById("content-inner");
 
+  // ── staleness state (fetched once at boot) ──────────────────────────────────
+  // _status = { stale: { "path/page.md": {action, source, changed} }, unverified: [...] }
+  var _status = null;
+
+  function fetchStatus() {
+    fetch("/api/status")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        _status = data;
+        // Re-render sidebar pills once status arrives (sidebar may already be built)
+        updateSidebarPills();
+      })
+      .catch(function () {
+        // Non-fatal: proceed without staleness data
+        _status = { stale: {}, unverified: [] };
+      });
+  }
+
+  /** Return {state, label} for a page path: "fresh" | "stale" | "unverified" */
+  function pageState(path) {
+    if (!_status) return null;
+    if (_status.stale && _status.stale[path]) return { state: "stale", label: "stale" };
+    if (_status.unverified && _status.unverified.indexOf(path) !== -1) return { state: "unverified", label: "?" };
+    return { state: "fresh", label: "fresh" };
+  }
+
+  /** Render a small staleness pill span, or "" if status not yet loaded. */
+  function renderPill(path) {
+    var ps = pageState(path);
+    if (!ps) return "";
+    return '<span class="status-pill ' + ps.state + '">' + escHtml(ps.label) + '</span>';
+  }
+
+  /** Update all sidebar link pills after status is loaded. */
+  function updateSidebarPills() {
+    if (!_status) return;
+    document.querySelectorAll(".page-item a[data-path]").forEach(function (a) {
+      var path = a.dataset.path;
+      // Find or create the pill span
+      var pill = a.querySelector(".status-pill");
+      if (!pill) {
+        pill = document.createElement("span");
+        a.appendChild(pill);
+      }
+      var ps = pageState(path);
+      if (ps) {
+        pill.className = "status-pill " + ps.state;
+        pill.textContent = ps.label;
+      }
+    });
+  }
+
   // ── helpers ─────────────────────────────────────────────────────────────────
 
   function setActive(path) {
@@ -127,20 +179,41 @@
       });
   }
 
+  /** Render covers chips from frontmatter. */
+  function renderCoversChips(fm) {
+    var covers = fm.covers || [];
+    if (typeof covers === "string") covers = covers ? [covers] : [];
+    if (!covers.length) return "";
+    var html = '<span class="covers-label">covers:</span>';
+    covers.forEach(function (glob) {
+      html += '<span class="covers-chip">' + escHtml(glob) + '</span>';
+    });
+    return html;
+  }
+
+  /** Render staleness badge for the page header. */
+  function renderHeaderBadge(path) {
+    return renderPill(path);
+  }
+
   function renderPage(data) {
     var fm = data.frontmatter || {};
     var md = data.markdown || "";
+    var pagePath = data.path;
 
     // Render markdown body via vendored marked
     var bodyHtml = window.marked ? window.marked.parse(md) : "<pre>" + escHtml(md) + "</pre>";
 
     // Build the page header area
-    // Placeholder spot: staleness badge + covers chips + backlinks go here in later ticks (rcs)
-    var title = fm.title || data.path.replace(/^.*\//, "").replace(/\.md$/, "");
+    var title = fm.title || pagePath.replace(/^.*\//, "").replace(/\.md$/, "");
+
+    // Page meta: staleness pill + covers chips
+    var metaHtml = renderHeaderBadge(pagePath) + renderCoversChips(fm);
+
     var headerHtml =
       '<header class="page-header">' +
       "<h1>" + escHtml(title) + "</h1>" +
-      '<div class="page-meta-placeholder"><!-- staleness badge + covers chips + backlinks (rcs) --></div>' +
+      '<div class="page-meta-placeholder">' + metaHtml + '</div>' +
       renderFrontmatterTable(fm) +
       "</header>";
 
@@ -151,10 +224,17 @@
 
     var tocItems = buildTocItems(tempDiv);
 
-    // Build final layout
+    // Build final layout (backlinks placeholder div appended after body)
     var layoutHtml =
       '<div class="page-layout">' +
-      '<article class="page-body">' + headerHtml + tempDiv.innerHTML + "</article>" +
+      '<article class="page-body">' +
+      headerHtml +
+      tempDiv.innerHTML +
+      '<div class="backlinks-section" id="backlinks-section">' +
+      '<p class="backlinks-title">Backlinks</p>' +
+      '<p class="backlinks-empty">Loading backlinks…</p>' +
+      '</div>' +
+      "</article>" +
       renderToc(tocItems) +
       "</div>";
 
@@ -166,6 +246,55 @@
     // Scroll content pane to top
     var contentPane = document.getElementById("content");
     if (contentPane) contentPane.scrollTop = 0;
+
+    // Fetch and render backlinks asynchronously
+    fetchBacklinks(pagePath);
+  }
+
+  /** Fetch /api/backlinks and update the backlinks section. */
+  function fetchBacklinks(pagePath) {
+    fetch("/api/backlinks?path=" + encodeURIComponent(pagePath))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var section = document.getElementById("backlinks-section");
+        if (!section) return;
+        var backlinks = data.backlinks || [];
+        if (!backlinks.length) {
+          section.innerHTML =
+            '<p class="backlinks-title">Backlinks</p>' +
+            '<p class="backlinks-empty">No backlinks.</p>';
+          return;
+        }
+        var html = '<p class="backlinks-title">Backlinks</p><ul class="backlinks-list">';
+        backlinks.forEach(function (b) {
+          var label = b.path.replace(/\.md$/, "");
+          html +=
+            '<li>' +
+            '<a href="#" class="backlinks-link" data-path="' + escHtml(b.path) + '">' +
+            escHtml(label) +
+            '<span class="backlinks-line">:' + b.line + '</span>' +
+            '</a>' +
+            '<p class="backlinks-snippet">' + escHtml(b.snippet) + '</p>' +
+            '</li>';
+        });
+        html += '</ul>';
+        section.innerHTML = html;
+        // Wire clicks
+        section.addEventListener("click", function (e) {
+          var a = e.target.closest("a.backlinks-link[data-path]");
+          if (!a) return;
+          e.preventDefault();
+          navigateTo(a.dataset.path);
+        });
+      })
+      .catch(function () {
+        var section = document.getElementById("backlinks-section");
+        if (section) {
+          section.innerHTML =
+            '<p class="backlinks-title">Backlinks</p>' +
+            '<p class="backlinks-empty">Could not load backlinks.</p>';
+        }
+      });
   }
 
   function pageLabel(page) {
@@ -215,7 +344,8 @@
             '" title="' +
             escHtml(p.summary || p.path) +
             '">' +
-            escHtml(pageLabel(p)) +
+            '<span class="page-label-text">' + escHtml(pageLabel(p)) + "</span>" +
+            renderPill(p.path) +
             "</a></li>";
         });
         html += "</ul>";
@@ -241,7 +371,8 @@
             '<li class="page-item"><a href="#" data-path="' +
             escHtml(p.path) +
             '">' +
-            escHtml(pageLabel(p)) +
+            '<span class="page-label-text">' + escHtml(pageLabel(p)) + "</span>" +
+            renderPill(p.path) +
             "</a></li>";
         });
         html += "</ul></div>";
@@ -255,7 +386,8 @@
           '<li class="page-item"><a href="#" data-path="' +
           escHtml(p.path) +
           '">' +
-          escHtml(pageLabel(p)) +
+          '<span class="page-label-text">' + escHtml(pageLabel(p)) + "</span>" +
+          renderPill(p.path) +
           "</a></li>";
       });
       html += "</ul>";
@@ -363,6 +495,9 @@
   }
 
   // ── boot ────────────────────────────────────────────────────────────────────
+
+  // Fetch staleness status in parallel with the tree — updates sidebar pills when ready.
+  fetchStatus();
 
   fetch("/api/tree")
     .then(function (r) {

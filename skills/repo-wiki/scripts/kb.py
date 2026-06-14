@@ -696,6 +696,68 @@ def _make_handler(wiki):
                     self.send_json({"error": str(exc)}, status=500)
                 return
 
+            # /api/status — freshness for the served wiki
+            if path == "/api/status":
+                try:
+                    # Locate the git root containing the wiki (best-effort)
+                    out, code = git("rev-parse", "--show-toplevel", cwd=str(wiki))
+                    if code != 0 or not out:
+                        # Not in a git repo — return all unverified gracefully
+                        pages = load_pages(wiki)
+                        unverified = [str(p.relative_to(wiki)) for p, _ in pages]
+                        self.send_json({"stale": {}, "unverified": unverified})
+                        return
+                    root = Path(out)
+                    pages = load_pages(wiki)
+                    raw = compute_status(root, wiki, pages)
+                    # Reshape to API shape:
+                    # stale: {rel_path: {action, source, changed}}
+                    # unverified: [rel_path, ...]
+                    stale_map = {}
+                    for s in raw.get("stale", []):
+                        stale_map[s["page"]] = {
+                            "action": s["action"],
+                            "source": s["source"],
+                            "changed": s.get("changed", []),
+                        }
+                    self.send_json({
+                        "stale": stale_map,
+                        "unverified": raw.get("unverified", []),
+                    })
+                except Exception as exc:
+                    self.send_json({"error": str(exc)}, status=500)
+                return
+
+            # /api/backlinks?path=<rel> — pages that reference this page
+            if path == "/api/backlinks":
+                qs = parse_qs(parsed.query)
+                rel_parts = qs.get("path", [])
+                if not rel_parts:
+                    self.send_json({"error": "missing ?path="}, status=400)
+                    return
+                rel = rel_parts[0]
+                # Sandbox: reject empty, absolute, or path-traversal attempts
+                if not rel or rel.startswith("/") or ".." in rel.split("/"):
+                    self.send_json({"error": "invalid path"}, status=400)
+                    return
+                target = (wiki / rel).resolve()
+                try:
+                    target.relative_to(wiki)
+                except ValueError:
+                    self.send_json({"error": "path outside wiki"}, status=403)
+                    return
+                # Search for the page by its filename (stem is usually unique enough)
+                # Use both the relative path and filename as search terms
+                try:
+                    filename = Path(rel).name  # e.g. "c.md"
+                    results = _search_wiki(wiki, re.escape(filename))
+                    # Exclude the page itself from backlinks
+                    backlinks = [r for r in results if r["path"] != rel]
+                    self.send_json({"backlinks": backlinks})
+                except Exception as exc:
+                    self.send_json({"error": str(exc)}, status=500)
+                return
+
             # static assets
             if path in _STATIC:
                 self.send_static(WEB_ASSETS / _STATIC[path])
@@ -704,6 +766,27 @@ def _make_handler(wiki):
             self.send_error(404, "Not found")
 
     return WikiHandler
+
+
+def _background_reconcile(wiki):
+    """Run a freshness reconcile in a daemon thread so serve startup isn't blocked."""
+    import threading
+
+    def _run():
+        try:
+            out, code = git("rev-parse", "--show-toplevel", cwd=str(wiki))
+            if code != 0 or not out:
+                return  # Not in a git repo — skip
+            root = Path(out)
+            pages = load_pages(wiki)
+            st = compute_status(root, wiki, pages)
+            st["ts"] = datetime.now(timezone.utc).isoformat()
+            save_status_cache(root, st)
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
 
 
 def cmd_serve(args):
@@ -722,6 +805,9 @@ def cmd_serve(args):
     if not wiki.exists():
         sys.exit(f"wiki directory does not exist: {wiki}\n"
                  "Run `kb.py init` first, or pass --wiki <path>.")
+
+    # Kick a background freshness refresh so the cache is warm — best-effort, never blocks.
+    _background_reconcile(wiki)
 
     handler_cls = _make_handler(wiki)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler_cls)
