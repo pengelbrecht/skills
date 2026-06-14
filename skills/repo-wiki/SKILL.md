@@ -141,6 +141,13 @@ and inside `kb catchup`; prompt 2 runs at commit/PR/CI.
 Most capture is **mechanical**: the `kb catchup` engine mines past sessions so nothing
 is lost even if you forget to file inline. See `references/intake.md`.
 
+**Write-back on a cache miss** is the third capture path (alongside chat triage and
+code-synthesis): when an agent needs project knowledge the wiki lacks, it resolves it
+(reads the code, asks the user, or web-searches) and then **proposes a page** so the next
+agent doesn't re-derive it — only when the knowledge is durable and non-obvious. This is
+why the shim and root `INDEX.md` carry a "missing knowledge?" instruction: the wiki is a
+write-back cache that grows from use, not just from chats.
+
 ## Staleness & catch-up
 
 ```bash

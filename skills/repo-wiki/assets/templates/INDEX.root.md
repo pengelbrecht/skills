@@ -14,6 +14,25 @@ Read this file first, then pull pages by relevance — don't read the whole tree
 - **Freshness:** `kb status` flags pages whose `covers` paths changed since their
   `verified_against` sha. Stale is a *signal*, not a gate.
 
+## When knowledge is missing (cache miss → fill it)
+
+If you need project knowledge the wiki doesn't have, don't just work around it — fill the
+gap so the next agent doesn't pay the same cost:
+
+1. **Resolve it from the most authoritative source:**
+   - *how something works* → **read the code** (then it's `from-code`),
+   - *why / intent / a constraint / product context* → **ask the user** — do **not**
+     guess non-derivable truth (then it's `canonical`),
+   - *external library / standard / API* → **web search** (then it's `from-doc` with a
+     `from:` URL).
+2. **Use it** for your task.
+3. If it's **durable and non-obvious** — it would help the next agent and isn't cheap to
+   re-derive — **propose** a wiki page for it: route via the resolver, stamp `covers`, set
+   `source` per above, dedup against existing pages first. **Skip trivia** you could
+   re-derive in seconds (that stays out of the wiki by design).
+
+This makes the wiki a write-back cache: every genuine gap becomes a one-time fill.
+
 ## What goes where — the resolver
 
 1. user / why-it-exists / what-to-build → `product/`

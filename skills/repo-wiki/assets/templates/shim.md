@@ -10,8 +10,11 @@ This repo's knowledge lives in `repo-wiki/`. **Read `repo-wiki/INDEX.md` first**
 the map + filing rules. Don't read the whole wiki; pull pages by relevance (`covers:`
 frontmatter, `grep`, descriptive filenames, each page's Compiled-Truth first line).
 Session start injects the pages relevant to your working set. When you settle a decision
-or learn a constraint, file it per `repo-wiki/INDEX.md` (propose-only). Full method: the
-`repo-wiki` skill.
+or learn a constraint, file it per `repo-wiki/INDEX.md` (propose-only).
+**If knowledge you need isn't in the wiki:** find it (read the code, ask me, or
+web-search), use it, then **propose adding it to `repo-wiki/`** so the next agent doesn't
+re-derive it — but only if it's durable and non-obvious. Full method: the `repo-wiki`
+skill.
 
 ## Always-on directives
 

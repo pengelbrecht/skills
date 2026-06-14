@@ -49,9 +49,18 @@ repo-wiki/INDEX.md           ← the manual: organization, resolver, page shape 
 page bodies                  ← paged in on demand, covers-scoped  (tier 3)
 ```
 
-The shim emphasizes **reading** (grounding), not writing — because capture is largely
-*mechanical* (the `catchup` triage mines sessions regardless), a one-line "file new
-knowledge per INDEX.md (propose-only)" nudge is enough.
+The shim emphasizes **reading** (grounding), with two lightweight write nudges — because
+the heavy capture is *mechanical* (the `catchup` triage mines sessions regardless):
+
+1. "File new decisions/constraints per `INDEX.md` (propose-only)."
+2. **Write-back on a cache miss.** If the agent needs knowledge the wiki lacks, it should
+   resolve it (read the code / ask the user / web-search) and then *propose* a page so the
+   next agent doesn't re-derive it. This makes the wiki a write-back cache that grows from
+   everyday use, not just from chats. The same recoverability filter applies — only
+   durable, non-obvious knowledge is captured; trivia that's cheap to re-derive stays out.
+   Source priority matters: read the code for *how* (→ `from-code`), **ask the user** for
+   *why/intent/constraints* rather than guessing (→ `canonical`), web-search for external
+   facts (→ `from-doc`). Full protocol in the root `INDEX.md`.
 
 ## Migrating an existing file
 
