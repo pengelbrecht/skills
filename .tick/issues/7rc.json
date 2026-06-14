@@ -1,0 +1,15 @@
+{
+  "id": "7rc",
+  "title": "Comment channel: POST /api/comment + comments.jsonl + kb.py comments CLI",
+  "description": "Server-side channel (the contract + the 'emit').\n\nFIRST STEP in worktree: git merge epic/repo-wiki-web is NOT relevant (that branch is gone); merge main: 'git merge main --no-edit'? No — just branch from main which has everything. Verify kb.py has cmd_serve + WikiHandler.\n\nAdd POST /api/comment to WikiHandler: parse JSON body {page, section, selected_text, comment}; validate (non-empty comment+selected_text; cap sizes e.g. comment\u003c=4000, selected_text\u003c=2000; sandbox 'page' to the wiki like /api/page); append a record {id (short uuid/time-based), page, section, selected_text, comment, ts (ISO), status:'open'} to \u003cwiki\u003e/.comments/comments.jsonl (create dir). Return {ok:true, id}. This is the ONLY write endpoint; everything else stays read-only.\n\nAdd kb.py 'comments' subcommand: 'comments' or 'comments list' (open ones, human-readable), 'comments list --json [--since \u003cid/ts\u003e]' (for the agent watch-loop), 'comments resolve \u003cid\u003e [--note]' (set status:resolved), 'comments clear' (archive/clear). Reuse existing helpers; stdlib only.\n\nGitignore repo-wiki/.comments/ (init wiring is T4; here just ensure the dir is created and add a .gitignore entry locally for the test).\n\nTest:\n- python3 -m py_compile kb.py\n- boot serve --wiki \u003ctmp\u003e; curl -X POST /api/comment with JSON -\u003e {ok,id}; file has the record; kb.py comments list shows it; resolve marks it; traversal on page field -\u003e 400.",
+  "notes": "2026-06-14 15:32 - [human] ANCHOR: the comment record must include a precise location: 'page' (the path) AND 'line' (1-based start line in the page's raw markdown), plus optional 'end_line'. Final record: {id, page, line, end_line, section, selected_text, comment, ts, status}. The server just stores what the client sends; T2 computes line.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "vd4",
+  "acceptance_criteria": "POST /api/comment appends a validated record to .comments/comments.jsonl and returns id; page field sandboxed; kb.py comments list/resolve work; py_compile passes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-14T13:30:43.084645Z",
+  "updated_at": "2026-06-14T13:32:08.00589Z"
+}

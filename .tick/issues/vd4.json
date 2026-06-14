@@ -1,0 +1,12 @@
+{
+  "id": "vd4",
+  "title": "Wiki comments (human → agent feedback)",
+  "description": "A comment feature for the repo-wiki web viewer: select text in the markdown content area → small modal → comment is emitted by the server to a durable channel that the local agent monitors and acts on.\n\nDELIVERY MODEL (decided): the server appends each comment to repo-wiki/.comments/comments.jsonl (the 'emit'). The agent consumes it two ways — (a) ACTIVE watch mode: agent poll-loops the channel (ScheduleWakeup/Monitor) when told to 'watch the wiki'; (b) PASSIVE: a UserPromptSubmit hook injects pending comments on the next turn. No real-time push (agent is turn-based). Storage is a gitignored local channel (like .ingest). Agent action: surface as actionable feedback, agent decides (propose page edit / reply / file to inbox), then resolve.\n\nFirst WRITE feature — but scoped to the comments channel file only; wiki pages stay read-only. Stack unchanged: stdlib server, vendored client, localhost.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-14T13:30:43.049607Z",
+  "updated_at": "2026-06-14T13:30:43.049607Z"
+}
