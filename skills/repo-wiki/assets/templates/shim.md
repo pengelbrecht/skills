@@ -15,6 +15,9 @@ or learn a constraint, file it per `repo-wiki/INDEX.md` (propose-only).
 web-search), use it, then **propose adding it to `repo-wiki/`** so the next agent doesn't
 re-derive it — but only if it's durable and non-obvious. Full method: the `repo-wiki`
 skill.
+**Wiki comments are a feedback channel:** if the UserPromptSubmit hook injects a
+`PENDING WIKI COMMENTS` block, act on each comment and resolve it. See
+`repo-wiki/references/comments.md` for the full consumption protocol.
 
 ## Always-on directives
 

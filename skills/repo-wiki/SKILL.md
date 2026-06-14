@@ -167,6 +167,23 @@ read-only.** Editing pages via the browser is a deferred follow-up (see
 `references/web.md`). Full technical details (API routes, security posture, asset
 provenance): `references/web.md`.
 
+## Comments — human-in-the-loop feedback
+
+The wiki viewer lets users highlight text and post inline comments. These land in
+`<wiki>/.comments/comments.jsonl` and are surfaced to agents two ways:
+
+- **Passive hook** (`assets/templates/comments-hook.sh`, wired as a `UserPromptSubmit`
+  hook): injects open comments at the top of every agent turn with zero poll overhead.
+- **Active watch loop**: the agent calls `kb.py comments list --json --since <cursor>`
+  on a short interval, acts on new comments, and advances the cursor.
+
+In either case the **consumption protocol** is: read the anchor (`page`, `line`,
+`section`, `selected_text`), act (usually edit the `.md` directly — the comment is the
+approval), append a Timeline entry, then `kb.py comments resolve <id> --note "..."`.
+
+Full details — hook install snippet, watch-loop pseudocode, act-then-resolve rules,
+edge cases: `references/comments.md`.
+
 ## Staleness & catch-up
 
 ```bash
@@ -214,6 +231,7 @@ existing file is the same triage primitive run over a file instead of a chat. Se
 | `references/activation.md` | hooks, the SessionStart heartbeat, CI backstop, install discipline |
 | `references/claude-md-shim.md` | migrating CLAUDE.md/AGENTS.md; what stays vs what moves |
 | `references/web.md` | `kb serve` — run instructions, API routes, architecture, security |
+| `references/comments.md` | wiki comments — passive hook, active watch loop, act-then-resolve consumption protocol |
 
 ## Honest limit
 

@@ -1,0 +1,1 @@
+{"id": "c_1a2b3c", "page": "architecture/api.md", "line": 42, "end_line": 45, "section": "Rate-limiting", "selected_text": "Billing endpoints must stay <50 req/s", "comment": "This limit changed — now 100 req/s since the ledger upgrade.", "ts": "2026-06-14T09:12:00+00:00", "status": "open"}
