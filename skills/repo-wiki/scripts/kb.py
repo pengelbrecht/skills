@@ -15,6 +15,7 @@ Subcommands:
                  they can be triaged into the wiki.
   watermark      Show / advance the local ingest watermark.
   session-start  Compact heartbeat block for the SessionStart hook (best-effort).
+  serve          Boot a local HTTP server (127.0.0.1) with /api/tree and the web UI.
 """
 import argparse
 import json
@@ -463,6 +464,152 @@ def install_hook(root):
     return True
 
 
+# ── web server ───────────────────────────────────────────────────────────────
+
+WEB_ASSETS = HERE.parent / "assets" / "web"
+
+_MIME = {
+    ".html": "text/html; charset=utf-8",
+    ".js":   "application/javascript; charset=utf-8",
+    ".css":  "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".md":   "text/plain; charset=utf-8",
+}
+
+# Static routes: URL path → filename under assets/web/
+_STATIC = {
+    "/":            "index.html",
+    "/app.js":      "app.js",
+    "/style.css":   "style.css",
+    "/marked.min.js": "marked.min.js",
+}
+
+
+def _folder_purpose(folder_dir):
+    """Return first non-heading, non-blank line from the folder's INDEX.md."""
+    idx = folder_dir / "INDEX.md"
+    if not idx.exists():
+        return ""
+    for line in idx.read_text(encoding="utf-8", errors="replace").splitlines():
+        s = line.strip()
+        if s and not s.startswith("#"):
+            return s
+    return ""
+
+
+def _build_tree(wiki):
+    """Build the /api/tree payload from the wiki directory."""
+    folders = []
+    for d in sorted(p for p in wiki.iterdir() if p.is_dir() and not p.name.startswith(".")):
+        folders.append({
+            "name": d.name,
+            "purpose": _folder_purpose(d),
+        })
+
+    pages = []
+    for p in iter_pages(wiki):
+        rel = str(p.relative_to(wiki))
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+            summary = compiled_truth_first_line(text)
+        except Exception:
+            summary = ""
+        pages.append({
+            "path": rel,
+            "summary": summary,
+        })
+
+    return {"folders": folders, "pages": pages}
+
+
+def _make_handler(wiki):
+    """Return a BaseHTTPRequestHandler class closed over wiki path."""
+    import http.server
+
+    class WikiHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):  # noqa: N802
+            sys.stderr.write(f"[serve] {self.address_string()} {fmt % args}\n")
+
+        def send_json(self, data, status=200):
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def send_static(self, asset_path):
+            suffix = asset_path.suffix
+            mime = _MIME.get(suffix, "application/octet-stream")
+            try:
+                data = asset_path.read_bytes()
+            except OSError:
+                self.send_error(404, "Not found")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", mime)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):  # noqa: N802
+            from urllib.parse import urlparse
+            parsed = urlparse(self.path)
+            path = parsed.path
+
+            # /api/tree
+            if path == "/api/tree":
+                try:
+                    data = _build_tree(wiki)
+                    self.send_json(data)
+                except Exception as exc:
+                    self.send_json({"error": str(exc)}, status=500)
+                return
+
+            # static assets
+            if path in _STATIC:
+                self.send_static(WEB_ASSETS / _STATIC[path])
+                return
+
+            self.send_error(404, "Not found")
+
+    return WikiHandler
+
+
+def cmd_serve(args):
+    import http.server
+
+    # Resolve wiki directory
+    if args.wiki:
+        wiki = Path(args.wiki).resolve()
+    else:
+        try:
+            root = repo_root()
+        except SystemExit:
+            sys.exit("not inside a git repo and --wiki not specified")
+        wiki = root / "repo-wiki"
+
+    if not wiki.exists():
+        sys.exit(f"wiki directory does not exist: {wiki}\n"
+                 "Run `kb.py init` first, or pass --wiki <path>.")
+
+    handler_cls = _make_handler(wiki)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler_cls)
+
+    print(f"repo-wiki serving on http://127.0.0.1:{args.port}")
+    print(f"  wiki : {wiki}")
+    print(f"  Press Ctrl-C to stop.")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nstopped.")
+    finally:
+        server.server_close()
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(prog="kb.py", description="repo-wiki command line")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -486,6 +633,10 @@ def main():
     rp = sub.add_parser("reconcile", help="heavy freshness scan → cache (run in background)")
     rp.add_argument("-v", "--verbose", action="store_true")
 
+    svp = sub.add_parser("serve", help="boot local web server with /api/tree + web UI")
+    svp.add_argument("--port", type=int, default=8347, help="port to listen on (default: 8347)")
+    svp.add_argument("--wiki", default=None, help="path to wiki dir (default: <repo>/repo-wiki)")
+
     args = ap.parse_args()
     dispatch = {
         "init": cmd_init,
@@ -495,6 +646,7 @@ def main():
         "watermark": cmd_watermark,
         "session-start": cmd_session_start,
         "reconcile": cmd_reconcile,
+        "serve": cmd_serve,
     }
     sys.exit(dispatch[args.cmd](args) or 0)
 
