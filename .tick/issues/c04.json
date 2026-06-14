@@ -3,7 +3,7 @@
   "title": "Walking skeleton: kb serve + /api/tree + sidebar",
   "description": "Add a `serve` subcommand to skills/repo-wiki/scripts/kb.py that boots a stdlib ThreadingHTTPServer on localhost (default --port 8347), serving:\n- a static HTML shell (assets/web/index.html) + vendored client assets (app.js, style.css) and a vendored marked.min.js (pin version, add PROVENANCE note),\n- GET /api/tree -\u003e JSON of the wiki folder/page structure (dirs + pages with relative path + Compiled-Truth first line), reusing load_pages/compiled_truth_first_line and the outline logic.\nClient renders a sidebar tree of folders/pages with links. This establishes the API + asset pipeline = the shared contract for later ticks.\n\nStack rules per .tick/config.md: stdlib only, localhost bind, assets vendored (no CDN).\n\nTest:\n- python3 -m py_compile skills/repo-wiki/scripts/kb.py\n- boot server; curl http://localhost:8347/api/tree returns 200 + JSON listing seeded pages\n- GET / returns the HTML shell that loads app.js/style.css",
   "notes": "2026-06-14 09:52 - When building the shell + initial style.css, follow the Clean-docs design spec (see epic note): tokens + system fonts + light/dark + sidebar/content layout.\n2026-06-14 09:53 - Refinement: 'minimal/neutral but crafted' — use the authoritative DESIGN TOKENS note on the epic verbatim for the initial style.css; restraint over chrome.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -11,5 +11,7 @@
   "acceptance_criteria": "kb serve boots on localhost; /api/tree returns JSON of folders+pages; / serves the shell; py_compile passes",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-14T07:45:44.508821Z",
-  "updated_at": "2026-06-14T07:53:14.346228Z"
+  "updated_at": "2026-06-14T07:59:58.559959Z",
+  "closed_at": "2026-06-14T07:59:58.559959Z",
+  "closed_reason": "Completed: kb serve (stdlib, 127.0.0.1) + /api/tree + sidebar tree + vendored marked v12 + Clean-docs style.css. Static via allowlist; /api/tree contract set."
 }

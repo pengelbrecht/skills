@@ -3,7 +3,7 @@
   "title": "Docs + polish: document kb serve; vendored-asset provenance",
   "description": "Finalize: document 'kb serve' in skills/repo-wiki/SKILL.md and a new references/web.md (how to run, what it shows, the stdlib/vendored/localhost/read-only design, the deferred edit epic). Add PROVENANCE for vendored marked.min.js. Promote the 'Later / fun' web-viewer item in docs/ideas/repo-wiki.md to 'shipped'. Quick pass on style.css for a clean, readable look (Tailwind-like minimal utilities or plain CSS).\n\nTest:\n- SKILL.md + references/web.md describe kb serve and the reference map links it\n- assets/web/ has a PROVENANCE note for marked.min.js",
   "notes": "2026-06-14 09:52 - Final CSS polish must realize the Clean-docs spec (see epic note): readable ~70ch measure, semantic staleness pills, sparing accent, dark mode.\n2026-06-14 09:53 - Refinement: polish to 'minimal/neutral but crafted' — verify against the epic DESIGN TOKENS note: spacing rhythm, type scale, hairline borders, single subtle shadow, muted pills, a11y focus rings.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -14,5 +14,7 @@
   "acceptance_criteria": "kb serve is documented in SKILL.md + references/web.md; vendored assets have provenance; idea doc updated",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-14T07:45:44.618228Z",
-  "updated_at": "2026-06-14T07:53:14.367783Z"
+  "updated_at": "2026-06-14T08:19:22.407262Z",
+  "closed_at": "2026-06-14T08:19:22.407262Z",
+  "closed_reason": "Completed: kb serve documented in SKILL.md + references/web.md; idea-doc marked shipped; provenance confirmed; CSS dead-rule cleanup."
 }

@@ -2,7 +2,7 @@
   "id": "c8u",
   "title": "Search: /api/search via ripgrep (grep fallback) + UI",
   "description": "Add GET /api/search?q=\u003cquery\u003e that shells out to ripgrep over repo-wiki/ (fallback to grep -r if rg absent), returning JSON matches { path, line, snippet }. Sanitize/escape the query; cap results. Client: a search box that shows results linking into pages.\n\nTouches server + app.js (shared) -\u003e depends on T2.\n\nTest:\n- seed a page containing 'billing'; curl '/api/search?q=billing' returns the match with path+snippet\n- empty/over-long query handled gracefully (no shell injection; query passed as argv, not via shell=True)",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "Search returns filesystem matches with path+snippet; query is passed safely (no shell injection); UI lists results",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-14T07:45:44.564256Z",
-  "updated_at": "2026-06-14T07:45:44.564256Z"
+  "updated_at": "2026-06-14T08:11:25.118001Z",
+  "closed_at": "2026-06-14T08:11:25.118001Z",
+  "closed_reason": "Completed: /api/search via ripgrep (grep fallback), argv/shell=False (injection-safe), query+result caps, search box UI toggling tree/results."
 }
