@@ -1,0 +1,17 @@
+{
+  "id": "ost",
+  "title": "Page view: /api/page + render Compiled Truth/Timeline/frontmatter",
+  "description": "Add GET /api/page?path=\u003crel\u003e returning JSON { markdown, frontmatter, ... } for a page inside repo-wiki/. SANDBOX: resolve path within the wiki dir; reject traversal/absolute (../, /etc/..) with 400/403. Reuse parse_frontmatter.\nClient: clicking a tree entry loads the page and renders it with vendored marked.js — a frontmatter table, the Compiled Truth section, and the Timeline section, styled with style.css.\n\nTouches the server file + app.js (shared) -\u003e depends on T1.\n\nTest:\n- curl /api/page?path=INDEX.md returns 200 + markdown+frontmatter\n- curl /api/page?path=../../../../etc/passwd returns 400/403 (sandbox)\n- page renders Compiled Truth + Timeline in browser (manual demoable)",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "c04"
+  ],
+  "parent": "jon",
+  "acceptance_criteria": "Pages render (frontmatter + Compiled Truth + Timeline); path traversal is rejected (400/403)",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-14T07:45:44.537081Z",
+  "updated_at": "2026-06-14T07:45:44.537081Z"
+}

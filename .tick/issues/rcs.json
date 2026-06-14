@@ -1,0 +1,17 @@
+{
+  "id": "rcs",
+  "title": "Staleness badges + covers/backlinks navigation",
+  "description": "Wire freshness + navigation into the UI:\n- Staleness badge per page (tree + page header) from the kb.py status cache (repo-wiki/.ingest/status.json via load_status_cache); trigger a background reconcile on serve start so the cache is warm. Badge states: fresh / stale / unverified.\n- Show each page's covers globs.\n- Backlinks: list other pages that reference this page (grep the page's filename/slug across repo-wiki/); render as links.\n\nTouches server + app.js (shared) -\u003e depends on T3.\n\nTest:\n- a page whose covers changed in git shows a 'stale' badge (reuse compute_status/cache)\n- a page linked from another shows that page under Backlinks",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "c8u"
+  ],
+  "parent": "jon",
+  "acceptance_criteria": "Each page shows a staleness badge from the status cache and its covers; backlinks list referencing pages",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-14T07:45:44.59133Z",
+  "updated_at": "2026-06-14T07:45:44.59133Z"
+}
