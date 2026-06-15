@@ -331,6 +331,61 @@ def cmd_session_start(args):
     return 0
 
 
+def cmd_post_commit(args):
+    """Post-commit git hook: nudge about drift this commit caused — soft, non-blocking.
+
+    Always exits 0.  If anything goes wrong (not in a repo, no wiki, no covers hit,
+    exception) → silent no-op.
+    """
+    try:
+        root = repo_root()
+        wiki = root / "repo-wiki"
+        if not wiki.exists():
+            return 0
+
+        # Get files changed by the last commit.
+        # git diff --name-only HEAD~1 HEAD fails for the root commit; treat that as no-op.
+        out, code = git("diff", "--name-only", "HEAD~1", "HEAD", cwd=root)
+        if code != 0 or not out:
+            return 0
+        commit_files = [p for p in out.splitlines() if p.strip()]
+        if not commit_files:
+            return 0
+
+        pages = load_pages(wiki)
+        st = compute_status(root, wiki, pages)
+        surfaced = load_surfaced(root)
+        delta = newly_stale(st["stale"], surfaced)
+
+        # Filter to pages whose covers intersect THIS commit's changed files.
+        triggered = []
+        for entry in delta:
+            # Re-read the covers for this page from the stale entry's changed list.
+            # compute_status already limited 'changed' to paths that match covers;
+            # we need to check whether any of those overlap with commit_files.
+            page_changed = entry.get("changed", [])
+            if any(cf in commit_files for cf in page_changed):
+                triggered.append(entry)
+
+        if not triggered:
+            return 0
+
+        print(f"[repo-wiki] {len(triggered)} page(s) may have drifted from this commit (soft signal — not a gate):")
+        for entry in triggered:
+            action = entry.get("action", "review")
+            source = entry.get("source", "canonical")
+            print(f"  • {entry['page']}  [{source}] → {action}")
+            for h in entry.get("changed", [])[:3]:
+                if h in commit_files:
+                    print(f"        ↳ changed: {h}")
+
+        mark_surfaced(surfaced, triggered)
+        save_surfaced(root, surfaced)
+    except Exception:
+        pass
+    return 0
+
+
 def cmd_reconcile(args):
     """Heavy scan — meant to run detached / in the background. Computes git staleness over
     every page and writes the cache the fast `session-start` reads. Safe to run anytime."""
@@ -471,6 +526,9 @@ def cmd_init(args):
     # UserPromptSubmit hook (comments)
     comments_installed = install_comments_hook(root)
 
+    # post-commit git hook
+    post_commit_installed = install_post_commit_hook(root)
+
     # detect instruction files
     shims = [f for f in ("CLAUDE.md", "AGENTS.md", "GEMINI.md") if (root / f).exists()]
 
@@ -481,6 +539,9 @@ def cmd_init(args):
             print(f"  + {c}")
     print(f"\nSessionStart hook:      {'installed in .claude/settings.json' if installed else 'already present / skipped'}")
     print(f"Comments hook:          {'installed (UserPromptSubmit)' if comments_installed else 'already present / skipped'}")
+    print(f"post-commit git hook:   {'installed in .git/hooks/post-commit' if post_commit_installed else 'already present / skipped'}")
+    print("  Note: .git/hooks/ is local-only — not shared by clone. Collaborators")
+    print("  get the hook via `kb.py init` or the SessionStart self-heal (upcoming).")
     print("ingest watermark:       repo-wiki/.ingest/ (gitignored)")
     print("comments store:         repo-wiki/.comments/ (gitignored)")
     print("\nComments: highlight text in the web viewer (kb serve) to post inline")
@@ -552,6 +613,51 @@ def install_hook(root):
         "hooks": [{"type": "command", "command": cmd}],
     })
     settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
+def install_post_commit_hook(root):
+    """Install (or append to) .git/hooks/post-commit to call kb.py post-commit.
+
+    Rules:
+    - Resolve the hooks dir via `git rev-parse --git-path hooks` (worktree-aware).
+    - If the hook file doesn't exist: create it with #!/bin/sh, chmod +x.
+    - If it exists but doesn't already call our kb.py: APPEND our line (preserve user content).
+    - If it already calls kb.py post-commit: do nothing (idempotent).
+    - The hook line uses `|| true` so a hook error never blocks a commit.
+
+    Returns True if a new hook or new line was added, False if already present.
+    """
+    # Resolve hooks dir (respects git worktrees)
+    out, code = git("rev-parse", "--git-path", "hooks", cwd=root)
+    if code == 0 and out:
+        hooks_dir = Path(out) if Path(out).is_absolute() else root / out
+    else:
+        hooks_dir = root / ".git" / "hooks"
+
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hook_file = hooks_dir / "post-commit"
+
+    # Absolute path to kb.py for the hook line
+    kb_abs = Path(__file__).resolve()
+    hook_line = f'python3 "{kb_abs}" post-commit 2>/dev/null || true'
+
+    if hook_file.exists():
+        content = hook_file.read_text(encoding="utf-8")
+        # Idempotency: check if kb.py post-commit is already wired
+        if "kb.py" in content and "post-commit" in content:
+            return False
+        # Append our line (preserve the user's existing hook)
+        with hook_file.open("a", encoding="utf-8") as f:
+            if not content.endswith("\n"):
+                f.write("\n")
+            f.write(hook_line + "\n")
+    else:
+        # Create from scratch
+        hook_file.write_text(f"#!/bin/sh\n{hook_line}\n", encoding="utf-8")
+
+    # Ensure executable
+    hook_file.chmod(hook_file.stat().st_mode | 0o111)
     return True
 
 
@@ -1307,6 +1413,8 @@ def main():
 
     sub.add_parser("session-start", help="fast, non-blocking heartbeat for the SessionStart hook")
 
+    sub.add_parser("post-commit", help="git post-commit hook: nudge about drift this commit caused (soft, non-blocking)")
+
     rp = sub.add_parser("reconcile", help="heavy freshness scan → cache (run in background)")
     rp.add_argument("-v", "--verbose", action="store_true")
 
@@ -1341,6 +1449,7 @@ def main():
         "catchup": cmd_catchup,
         "watermark": cmd_watermark,
         "session-start": cmd_session_start,
+        "post-commit": cmd_post_commit,
         "reconcile": cmd_reconcile,
         "serve": cmd_serve,
         "comments": cmd_comments,
