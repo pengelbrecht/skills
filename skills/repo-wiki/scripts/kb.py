@@ -442,11 +442,27 @@ def cmd_post_commit(args):
     return 0
 
 
-def count_uningested_chat_sessions(root, days=30):
-    """Use vendored recall to count sessions newer than the chat watermark.
+_UNINGESTED_CAP = 50  # cap the first-run count so an unindexed watermark can't inflate it
 
-    Returns an int (0 if recall unavailable, watermark absent, or any error).
-    Best-effort: never raises.
+
+def count_uningested_chat_sessions(root, days=30):
+    """Count real chat sessions newer than the chat watermark, via vendored recall.
+
+    Recall has no --json flag; we parse its list-mode text output. Format per entry:
+
+        [1] 2026-06-15 | slug | <title> [claude]
+            /path/to/project
+            ID: <session-id>
+            File: /Users/.../projects/<slug>/<uuid>.jsonl
+
+    Sessions are listed newest-first. We:
+      - skip subagent transcripts (File path contains '/subagents/' OR ID starts
+        with 'agent-') — those are orchestration noise, not user chats to mine;
+      - walk the newest-first real-session IDs and count until we hit the watermark
+        id (stop there). If the watermark id is absent, count all real sessions,
+        capped at _UNINGESTED_CAP to avoid a huge first-run number.
+
+    Best-effort: recall missing / errors / no watermark → 0, never raises.
     """
     try:
         if not RECALL.exists():
@@ -454,27 +470,47 @@ def count_uningested_chat_sessions(root, days=30):
         wm = load_watermark(root)
         watermark_sid = wm.get("chat_session_id") or ""
         proc = subprocess.run(
-            [sys.executable, str(RECALL), "--project", str(root),
-             "--days", str(days), "--json"],
+            [sys.executable, str(RECALL), "--project", str(root), "--days", str(days)],
             capture_output=True, text=True, timeout=30,
         )
         if proc.returncode != 0:
             return 0
-        sessions = json.loads(proc.stdout)
-        if not isinstance(sessions, list):
-            return 0
+
+        # Parse (ID, File) pairs in listing order (newest-first). Each entry has an
+        # "ID:" line followed by a "File:" line; pair them up as we scan.
+        entries = []  # list of (sid, file_path)
+        pending_id = None
+        for raw in proc.stdout.splitlines():
+            line = raw.strip()
+            if line.startswith("ID:"):
+                pending_id = line[len("ID:"):].strip()
+            elif line.startswith("File:"):
+                file_path = line[len("File:"):].strip()
+                if pending_id is not None:
+                    entries.append((pending_id, file_path))
+                    pending_id = None
+        # Handle an ID with no following File line (defensive).
+        if pending_id is not None:
+            entries.append((pending_id, ""))
+
+        # Filter out subagent transcripts.
+        real = [
+            sid for (sid, fpath) in entries
+            if "/subagents/" not in fpath and not sid.startswith("agent-")
+        ]
+
         if not watermark_sid:
-            return len(sessions)
-        # Count sessions whose id (or path) comes after the watermark.
-        # Recall returns sessions newest-first; we want those not yet ingested.
-        # Strategy: count sessions that appear before (newer than) the watermark id.
+            return min(len(real), _UNINGESTED_CAP)
+
         count = 0
-        for s in sessions:
-            sid = s.get("id") or s.get("session_id") or ""
+        for sid in real:
             if sid == watermark_sid:
-                break
+                return count  # reached the watermark — everything before it is un-ingested
             count += 1
-        return count
+            if count >= _UNINGESTED_CAP:
+                return count
+        # Watermark id not found in the listing — count all real sessions (capped).
+        return min(count, _UNINGESTED_CAP)
     except Exception:
         return 0
 
