@@ -354,6 +354,15 @@ def cmd_session_start(args):
             install_post_commit_hook(root)  # idempotent — no-op if already present
         except Exception:
             pass
+        # Heal any stale settings.json hook path (e.g. an older hardcoded install
+        # location). Heal-only — never installs a hook that was intentionally absent.
+        try:
+            healed = selfheal_settings_hooks(root)
+            if healed:
+                print(f"[repo-wiki] repaired {healed} stale hook path(s) in "
+                      ".claude/settings.json — they take effect next session.")
+        except Exception:
+            pass
         # .ingest/ must exist for cache/watermark writes.
         try:
             (wiki / ".ingest").mkdir(parents=True, exist_ok=True)
@@ -405,6 +414,17 @@ def cmd_post_commit(args):
         wiki = root / "repo-wiki"
         if not wiki.exists():
             return 0
+
+        # The git hook resolves even when the committed settings.json hooks point at
+        # a stale path, so this is the one reliable place to repair them for an
+        # already-broken install. Heal-only — never installs an absent hook.
+        try:
+            healed = selfheal_settings_hooks(root)
+            if healed:
+                print(f"[repo-wiki] repaired {healed} stale hook path(s) in "
+                      ".claude/settings.json.")
+        except Exception:
+            pass
 
         # Get files changed by the last commit.
         # git diff --name-only HEAD~1 HEAD fails for the root commit; treat that as no-op.
@@ -885,27 +905,75 @@ def ensure_gitignore(root, entries):
                 f.write(e + "\n")
 
 
-def install_hook(root):
+# ── .claude/settings.json hook installers ─────────────────────────────────────
+# The four committed Claude hooks (SessionStart, UserPromptSubmit, PreCompact,
+# SessionEnd) each embed the path to THIS kb.py. That path is DERIVED from the
+# script's own location (mirroring install_post_commit_hook's Path(__file__)
+# approach), NOT hardcoded — so the hooks work wherever the skill is installed:
+# <root>/skills/repo-wiki, .claude/skills/repo-wiki, .agents/skills/repo-wiki, etc.
+# A $CLAUDE_PROJECT_DIR-relative path is used when kb.py lives under the repo so the
+# committed hook stays portable across clones; an absolute path is the fallback.
+
+def _kb_path_expr(root, projdir="$CLAUDE_PROJECT_DIR"):
+    """Path token to embed in a committed settings.json hook command — relative to
+    `projdir` when kb.py is under the repo root, absolute otherwise."""
+    kb_abs = Path(__file__).resolve()
+    try:
+        rel = kb_abs.relative_to(Path(root).resolve())
+        return f"{projdir}/{rel.as_posix()}"
+    except ValueError:
+        return str(kb_abs)
+
+
+def _load_settings(root):
     settings = root / ".claude" / "settings.json"
     settings.parent.mkdir(exist_ok=True)
-    data = {}
     if settings.exists():
         try:
-            data = json.loads(settings.read_text())
+            return json.loads(settings.read_text())
         except Exception:
-            data = {}
-    hooks = data.setdefault("hooks", {})
-    ss = hooks.setdefault("SessionStart", [])
-    cmd = 'python3 "$CLAUDE_PROJECT_DIR/skills/repo-wiki/scripts/kb.py" session-start 2>/dev/null || true'
-    blob = json.dumps(ss)
-    if "repo-wiki/scripts/kb.py" in blob:
-        return False
-    ss.append({
-        "matcher": "startup",
-        "hooks": [{"type": "command", "command": cmd}],
-    })
+            return {}
+    return {}
+
+
+def _write_settings(root, data):
+    settings = root / ".claude" / "settings.json"
     settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def _upsert_settings_hook(root, event, matcher, desired_cmd, marker, add_if_missing=True):
+    """Insert or self-heal a repo-wiki hook in .claude/settings.json.
+
+    An existing repo-wiki entry for this hook is identified by the kb.py path
+    fragment plus the subcommand `marker`. If found with a command that differs from
+    `desired_cmd` (e.g. an older hardcoded install path), it is rewritten in place —
+    this is what lets a re-run of `kb plumbing` repair a stale path rather than skip
+    it. If not found and `add_if_missing`, the entry is appended.
+
+    Returns True if the file was written (added or healed), False otherwise.
+    """
+    data = _load_settings(root)
+    entries = data.setdefault("hooks", {}).setdefault(event, [])
+    for entry in entries:
+        for h in entry.get("hooks", []):
+            c = h.get("command", "")
+            if "repo-wiki/scripts/kb.py" in c and marker in c:
+                if c == desired_cmd:
+                    return False            # already correct
+                h["command"] = desired_cmd  # self-heal stale path
+                _write_settings(root, data)
+                return True
+    if not add_if_missing:
+        return False
+    entries.append({"matcher": matcher, "hooks": [{"type": "command", "command": desired_cmd}]})
+    _write_settings(root, data)
     return True
+
+
+def install_hook(root, add_if_missing=True):
+    cmd = f'python3 "{_kb_path_expr(root)}" session-start 2>/dev/null || true'
+    return _upsert_settings_hook(root, "SessionStart", "startup", cmd, "session-start",
+                                 add_if_missing)
 
 
 def install_post_commit_hook(root):
@@ -955,97 +1023,54 @@ def install_post_commit_hook(root):
     return True
 
 
-def install_precompact_hook(root):
-    """Install the PreCompact hook that calls kb.py precompact.
+def install_precompact_hook(root, add_if_missing=True):
+    """Install (or self-heal) the PreCompact hook that calls kb.py precompact."""
+    cmd = f'python3 "{_kb_path_expr(root)}" precompact 2>/dev/null || true'
+    return _upsert_settings_hook(root, "PreCompact", "", cmd, "precompact", add_if_missing)
 
-    Idempotent: checks for an existing kb.py precompact entry before adding.
-    Does not touch other hooks.
+
+def install_session_end_hook(root, add_if_missing=True):
+    """Install (or self-heal) the SessionEnd hook that calls kb.py session-end."""
+    cmd = f'python3 "{_kb_path_expr(root)}" session-end 2>/dev/null || true'
+    return _upsert_settings_hook(root, "SessionEnd", "", cmd, "session-end", add_if_missing)
+
+
+def install_comments_hook(root, add_if_missing=True):
+    """Install (or self-heal) the UserPromptSubmit hook that injects open wiki comments.
+
+    Uses ${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)} so the hook still
+    resolves if CLAUDE_PROJECT_DIR is unset in the prompt-submit environment.
     """
-    settings = root / ".claude" / "settings.json"
-    settings.parent.mkdir(exist_ok=True)
-    data = {}
-    if settings.exists():
-        try:
-            data = json.loads(settings.read_text())
-        except Exception:
-            data = {}
-    hooks = data.setdefault("hooks", {})
-    pc = hooks.setdefault("PreCompact", [])
-    blob = json.dumps(pc)
-    if "repo-wiki/scripts/kb.py" in blob and "precompact" in blob:
-        return False
-    cmd = 'python3 "$CLAUDE_PROJECT_DIR/skills/repo-wiki/scripts/kb.py" precompact 2>/dev/null || true'
-    pc.append({
-        "matcher": "",
-        "hooks": [{"type": "command", "command": cmd}],
-    })
-    settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return True
-
-
-def install_session_end_hook(root):
-    """Install the SessionEnd hook that calls kb.py session-end.
-
-    Idempotent: checks for an existing kb.py session-end entry before adding.
-    Does not touch other hooks.
-    """
-    settings = root / ".claude" / "settings.json"
-    settings.parent.mkdir(exist_ok=True)
-    data = {}
-    if settings.exists():
-        try:
-            data = json.loads(settings.read_text())
-        except Exception:
-            data = {}
-    hooks = data.setdefault("hooks", {})
-    se = hooks.setdefault("SessionEnd", [])
-    blob = json.dumps(se)
-    if "repo-wiki/scripts/kb.py" in blob and "session-end" in blob:
-        return False
-    cmd = 'python3 "$CLAUDE_PROJECT_DIR/skills/repo-wiki/scripts/kb.py" session-end 2>/dev/null || true'
-    se.append({
-        "matcher": "",
-        "hooks": [{"type": "command", "command": cmd}],
-    })
-    settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return True
-
-
-def install_comments_hook(root):
-    """Install the UserPromptSubmit hook that injects open wiki comments.
-
-    Idempotent: checks whether a kb.py comments call is already present in any
-    UserPromptSubmit entry before adding.  Does not touch SessionStart.
-    """
-    settings = root / ".claude" / "settings.json"
-    settings.parent.mkdir(exist_ok=True)
-    data = {}
-    if settings.exists():
-        try:
-            data = json.loads(settings.read_text())
-        except Exception:
-            data = {}
-    hooks = data.setdefault("hooks", {})
-    ups = hooks.setdefault("UserPromptSubmit", [])
-    blob = json.dumps(ups)
-    # Idempotency: bail if a kb.py comments list invocation is already wired
-    if "repo-wiki/scripts/kb.py" in blob and "comments list" in blob:
-        return False
+    kb = _kb_path_expr(root, "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}")
     cmd = (
-        'KB="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}'
-        '/skills/repo-wiki/scripts/kb.py"; '
+        f'KB="{kb}"; '
         'PENDING="$(python3 "$KB" comments list 2>/dev/null)" || true; '
         '[ -z "$PENDING" ] || [ "$PENDING" = "No open comments." ] && exit 0; '
         "printf '=== PENDING WIKI COMMENTS (feedback from the viewer -- please act on these) ===\\n'; "
         'printf \'%s\\n\' "$PENDING"; '
         "printf '=== end wiki comments -- resolve each with: kb.py comments resolve <id> --note \"<what you did>\" ===\\n'"
     )
-    ups.append({
-        "matcher": "",
-        "hooks": [{"type": "command", "command": cmd}],
-    })
-    settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return True
+    return _upsert_settings_hook(root, "UserPromptSubmit", "", cmd, "comments list", add_if_missing)
+
+
+def selfheal_settings_hooks(root):
+    """Heal stale repo-wiki hook paths in an existing .claude/settings.json.
+
+    Heal-ONLY: rewrites a hook whose embedded kb.py path is stale, but never installs
+    a hook that is absent (that's `kb plumbing`'s job). This is the rescue path for an
+    install whose committed settings.json points at an old hardcoded location —
+    invoked from cmd_post_commit (the git hook still resolves, since it uses an
+    absolute path) and cmd_session_start. Returns the number of hooks healed.
+    """
+    healed = 0
+    for fn in (install_hook, install_precompact_hook,
+               install_session_end_hook, install_comments_hook):
+        try:
+            if fn(root, add_if_missing=False):
+                healed += 1
+        except Exception:
+            pass
+    return healed
 
 
 # ── web server ───────────────────────────────────────────────────────────────

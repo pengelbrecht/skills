@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # precompact-hook.sh — PreCompact hook: inject extract-before-compaction directive.
 #
+# NOTE: prefer `kb.py init`/`plumbing` — it derives the kb.py path from wherever the
+# skill is actually installed. The paths below are illustrative and assume the common
+# .claude/skills/repo-wiki/ layout; adjust if the skill lives elsewhere.
+#
 # Installed by `kb.py init` into .claude/settings.json under "PreCompact":
 #
 #   "hooks": {
@@ -10,7 +14,7 @@
 #         "hooks": [
 #           {
 #             "type": "command",
-#             "command": "python3 \"$CLAUDE_PROJECT_DIR/skills/repo-wiki/scripts/kb.py\" precompact 2>/dev/null || true"
+#             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/skills/repo-wiki/scripts/kb.py\" precompact 2>/dev/null || true"
 #           }
 #         ]
 #       }
@@ -26,4 +30,4 @@
 #     compactions within the same session.
 #   - Best-effort: always exits 0 so it never blocks the compaction.
 
-python3 "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}/skills/repo-wiki/scripts/kb.py" precompact 2>/dev/null || true
+python3 "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}/.claude/skills/repo-wiki/scripts/kb.py" precompact 2>/dev/null || true
