@@ -3,19 +3,35 @@
 Knowledge enters the wiki from exactly two sources. They map onto the two knowledge
 types: git is the truth for the *derivable* side, chats for the *non-derivable*.
 
-| Stream | Source of truth for | Produces | Watermark | Catch-up |
+| Stream | Source of truth for | Produces | Watermark | Catch-up trigger |
 |---|---|---|---|---|
-| **git** (file changes) | the derivable side — what the code *is* | staleness signal + from-code refresh | last commit `sha` | diff `sha..HEAD` |
-| **chats** (conversations) | the non-derivable side — the *why* | proposed pages via the resolver | last `session-id` | sessions since the cursor |
+| **git** (file changes) | the derivable side — what the code *is* | staleness signal + from-code refresh | last commit `sha` | post-commit hook (diff-scoped nudge), SessionStart (cached summary) |
+| **chats** (conversations) | the non-derivable side — the *why* | proposed pages via the resolver | last `session-id` | **auto**: PreCompact, SessionEnd, SessionStart (count via background reconcile); **manual**: `kb catchup` |
+
+## Auto-triggered chat catch-up
+
+Chat catch-up is now wired into three automatic hooks (not just `kb catchup`):
+
+- **PreCompact** — fires before context is compacted. Prints a directive to mine the
+  current window for durable knowledge before it is lost.
+- **SessionEnd** — fires when the session ends. Nudges the agent to run `kb catchup`
+  before the session window is gone.
+- **SessionStart** — reads the cached count of un-ingested chat sessions (written by the
+  background `reconcile`). If sessions are pending, surfaces the count as a prompt
+  to run `kb catchup`. The count is cached so session start stays fast.
+
+`kb catchup` remains the explicit command for manual or batch catch-up. The auto hooks
+are warm-path reminders; the watermark + reconcile guarantee correctness even if all live
+hooks miss.
 
 ## Correctness lives in the watermark, not in events
 
 A session-end hook is best-effort — crashes, `/clear`, a closed window all drop chat
 knowledge. So **don't depend on any live event firing.** Persist a cursor; at the next
 session-start, compare it against the sessions/commits that actually exist and backfill
-the gap. Live hooks (post-commit, session-end) are the warm fast-path; the watermark +
-catch-up reconciliation is the guarantee. This mirrors git itself: you never "watch"
-commits, you diff against a ref.
+the gap. Live hooks (post-commit, session-end, precompact) are the warm fast-path; the
+watermark + catch-up reconciliation is the guarantee. This mirrors git itself: you never
+"watch" commits, you diff against a ref.
 
 ## Git-aware chat triage
 

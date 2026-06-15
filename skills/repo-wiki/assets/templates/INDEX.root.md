@@ -73,6 +73,29 @@ injects a `PENDING WIKI COMMENTS` block, act on each comment (edit the page, fil
 `inbox/`, or reply) and resolve it with `kb.py comments resolve <id> --note "..."`.
 Full protocol: `repo-wiki/references/comments.md`.
 
+## New collaborator / fresh clone
+
+**What a fresh clone inherits** (from `.claude/settings.json`, which is committed):
+SessionStart, UserPromptSubmit, PreCompact, and SessionEnd hooks for the wiki engine.
+
+**What it does NOT inherit:**
+- `.git/hooks/post-commit` — git never clones local hooks (hard git constraint)
+- `repo-wiki/.ingest/` — local watermark state (gitignored; each developer has their own)
+- `repo-wiki/.comments/` — local comment store (gitignored)
+
+**The fix is automatic.** The SessionStart hook self-heals the git hook: on the first
+Claude Code session after cloning, `kb session-start` detects the missing
+`.git/hooks/post-commit` and recreates it. No manual step needed.
+
+**One trust prompt is unavoidable.** Claude Code will ask you to approve the hooks on the
+first session — this is a Claude Code security boundary. Approve once; after that, the
+hooks run automatically in every session.
+
+To get the git hook immediately (before opening a Claude session), run once:
+```bash
+python3 skills/repo-wiki/scripts/kb.py init   # idempotent — safe to run multiple times
+```
+
 ## Conventions in this wiki
 
 <!-- Record any repo-specific deviations from the recommended structure here, so the

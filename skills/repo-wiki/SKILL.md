@@ -195,14 +195,30 @@ edge cases: `references/comments.md`.
 ## Staleness & catch-up
 
 ```bash
-python3 scripts/kb.py status      # which pages drifted from the code (soft signal)
-python3 scripts/kb.py catchup     # mine chat sessions since the watermark
+python3 scripts/kb.py status         # full freshness report (live git scan)
+python3 scripts/kb.py status --new   # delta: newly stale only, surfaces each page once
+python3 scripts/kb.py catchup        # mine chat sessions since the watermark
+python3 scripts/kb.py verify <page>  # mark page fresh at HEAD + clear surfaced cursor
+python3 scripts/kb.py post-commit    # diff-scoped nudge (runs automatically via git hook)
+python3 scripts/kb.py precompact     # print extract-before-compaction directive
+python3 scripts/kb.py session-end    # catch-up nudge (runs automatically via SessionEnd)
+python3 scripts/kb.py session-start  # heartbeat block (runs automatically via SessionStart)
 ```
 
 `status` is deterministic: it intersects each page's `covers` globs with what changed
 in git since its `verified_against` sha. Stale = a review-queue entry, **never a
 commit gate** (hard gates breed `--no-verify` habits). `catchup` wraps the vendored
 `recall` scripts (multi-agent: Claude / Codex / pi) to enumerate and read sessions.
+
+**`kb verify <page>`** is the one-command way to clear a stale/surfaced page: it bumps
+`verified_against` to HEAD, appends a Timeline entry, and removes the page's surfaced
+cursor key. After verify, `status --new` is silent for that page unless it drifts again.
+
+**`status --new` / delta mode:** announces newly-stale pages exactly once per
+fresh→stale transition. A `.ingest/surfaced.json` cursor tracks which pages have been
+surfaced. Re-running `status --new` in the same session is silent. `kb verify` clears
+the cursor entry, allowing the page to surface again if it later drifts.
+
 Details and the watermark model: `references/intake.md`.
 
 **Keep heavy work off the main thread.** Long transcripts, large diffs, and multi-session
@@ -212,13 +228,51 @@ non-blocking by design: `kb.py session-start` does no git scan (it reports a cac
 summary and spawns a detached `kb.py reconcile` to refresh it). See
 `references/activation.md`.
 
-## Activation — making it actually run
+## Activation — wired triggers
 
-The point of the `SessionStart` hook is that maintenance is an **install problem, not
-a willpower problem**. Once `init` writes the (committed) hook config, every session
-injects the wiki, reports drift, and reconciles missed chats — regardless of whether
-anyone remembers. Add a CI check on PRs as the ungameable backstop. See
-`references/activation.md`.
+Maintenance is an **install problem, not a willpower problem**. `init` installs four
+committed Claude hooks and one git hook. After that, maintenance is automatic:
+
+| Hook | Type | Fires | Effect |
+|---|---|---|---|
+| SessionStart | `.claude/settings.json` | every session | inject wiki, announce new-stale delta, self-heal git hook, spawn reconcile |
+| UserPromptSubmit | `.claude/settings.json` | every turn | inject open wiki comments |
+| PreCompact | `.claude/settings.json` | before compaction | prints extract-before-compaction directive |
+| SessionEnd | `.claude/settings.json` | session ends | nudge to run `kb catchup` |
+| post-commit | `.git/hooks/post-commit` | every commit | diff-scoped staleness nudge (exit 0 always) |
+
+Add a CI check on PRs as the ungameable backstop. Full details: `references/activation.md`.
+
+## New-collaborator / fresh clone
+
+**What a fresh clone inherits** (from `.claude/settings.json`, committed):
+
+- SessionStart hook — heartbeat, delta surfacing, self-heal, reconcile spawn
+- UserPromptSubmit hook — wiki comments injection
+- PreCompact hook — extract-before-compaction directive
+- SessionEnd hook — catch-up nudge
+
+**What it does NOT inherit:**
+
+- `.git/hooks/post-commit` — git never clones local hooks; this is a hard git constraint
+- `.ingest/` — local watermark state (gitignored by design; each developer has their own)
+- `.comments/` — local comment store (gitignored)
+
+**The fix — zero extra steps needed:**
+
+The SessionStart hook **self-heals** the git hook automatically: on the first Claude Code
+session after a fresh clone, `kb session-start` detects the missing
+`.git/hooks/post-commit` and recreates it. No manual `kb init` is required.
+
+**One trust prompt is unavoidable.** Claude Code will ask the user to approve the
+SessionStart (and other) hooks on the first session. This is a Claude Code security
+boundary that cannot be bypassed. After approving once, the hooks run automatically in
+all subsequent sessions.
+
+**Summary: "one approval then automatic"** is the target. Fully zero-touch is not
+achievable (git-hook inheritance + trust prompt are hard constraints). If you want the
+git hook before the first Claude session, run `python3 skills/repo-wiki/scripts/kb.py
+init` once after cloning — it is idempotent and safe to run multiple times.
 
 ## CLAUDE.md / AGENTS.md → thin shim
 
