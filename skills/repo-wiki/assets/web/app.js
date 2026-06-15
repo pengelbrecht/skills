@@ -32,10 +32,12 @@
     return { state: "fresh", label: "fresh" };
   }
 
-  /** Render a small staleness pill span, or "" if status not yet loaded. */
+  /** Render a small staleness pill span. Only code-tracked pages (fresh/stale) get a
+   *  pill; pages with no `covers` ("unverified") are a normal, permanent state and show
+   *  no badge — a wall of grey "?" on a fresh wiki reads as alarming when nothing is wrong. */
   function renderPill(path) {
     var ps = pageState(path);
-    if (!ps) return "";
+    if (!ps || ps.state === "unverified") return "";
     return '<span class="status-pill ' + ps.state + '">' + escHtml(ps.label) + '</span>';
   }
 
@@ -44,17 +46,19 @@
     if (!_status) return;
     document.querySelectorAll(".page-item a[data-path]").forEach(function (a) {
       var path = a.dataset.path;
-      // Find or create the pill span
+      var ps = pageState(path);
       var pill = a.querySelector(".status-pill");
+      // No badge for not-code-tracked ("unverified") pages — remove any stale pill.
+      if (!ps || ps.state === "unverified") {
+        if (pill) pill.remove();
+        return;
+      }
       if (!pill) {
         pill = document.createElement("span");
         a.appendChild(pill);
       }
-      var ps = pageState(path);
-      if (ps) {
-        pill.className = "status-pill " + ps.state;
-        pill.textContent = ps.label;
-      }
+      pill.className = "status-pill " + ps.state;
+      pill.textContent = ps.label;
     });
   }
 
