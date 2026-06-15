@@ -99,6 +99,30 @@ body {
   color: var(--muted);
 }
 
+/* Home button: sidebar title as a clickable link, same visual as the label */
+button.sidebar-home-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  display: block;
+  width: 100%;
+  transition: color 80ms;
+}
+
+button.sidebar-home-btn:hover {
+  color: var(--accent);
+}
+
+button.sidebar-home-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 #tree,
 #search-results {
   flex: 1;
@@ -130,20 +154,80 @@ body {
 .folder-label {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-4);
+  gap: 0;
+  padding: var(--sp-1) var(--sp-4) var(--sp-1) var(--sp-2);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: .05em;
   text-transform: uppercase;
   color: var(--muted);
-  cursor: default;
   user-select: none;
 }
 
-.folder-label .folder-icon {
-  opacity: 0.6;
-  font-size: 0.7rem;
+/* Chevron toggle button */
+.folder-chevron-btn {
+  background: none;
+  border: none;
+  padding: 0 var(--sp-1) 0 var(--sp-1);
+  margin: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.65rem;
+  color: var(--muted);
+  opacity: 0.7;
+  line-height: 1;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  transition: opacity 80ms, color 80ms;
+  /* Larger click target */
+  min-width: 20px;
+  text-align: center;
+}
+
+.folder-chevron-btn:hover {
+  opacity: 1;
+  color: var(--text);
+}
+
+.folder-chevron-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Folder name button — opens folder INDEX.md */
+.folder-name-btn {
+  background: none;
+  border: none;
+  padding: 0 var(--sp-2);
+  margin: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--radius-sm);
+  transition: color 80ms;
+}
+
+.folder-name-btn:hover {
+  color: var(--accent);
+}
+
+.folder-name-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Collapsible: hide the page list when folder is collapsed */
+.folder-collapsed .page-list {
+  display: none;
 }
 
 /* page items */

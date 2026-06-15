@@ -161,6 +161,9 @@
   function navigateTo(path) {
     location.hash = encodeURIComponent(path);
     setActive(path);
+    // Expand the folder containing this page (if any)
+    var folder = folderOfPath(path);
+    if (folder) expandFolder(folder);
 
     // Show a loading state while fetching
     contentInner.innerHTML = '<p class="welcome">Loading…</p>';
@@ -502,7 +505,15 @@
     var bodyHtml = window.marked ? window.marked.parse(md) : "<pre>" + escHtml(md) + "</pre>";
 
     // Build the page header area
-    var title = fm.title || pagePath.replace(/^.*\//, "").replace(/\.md$/, "");
+    // For INDEX.md pages without a frontmatter title, use folder name or "Home"
+    var defaultTitle;
+    if (/(?:^|\/)INDEX\.md$/.test(pagePath)) {
+      var slash = pagePath.lastIndexOf("/");
+      defaultTitle = slash === -1 ? "Home" : pagePath.slice(0, slash);
+    } else {
+      defaultTitle = pagePath.replace(/^.*\//, "").replace(/\.md$/, "");
+    }
+    var title = fm.title || defaultTitle;
 
     // Page meta: staleness pill + covers chips
     var metaHtml = renderHeaderBadge(pagePath) + renderCoversChips(fm);
@@ -603,6 +614,102 @@
     });
   }
 
+  // ── folder collapse / localStorage helpers ─────────────────────────────────
+
+  var LS_PREFIX = "repo-wiki:folder-collapsed:";
+
+  function isFolderCollapsed(folderName) {
+    try {
+      return localStorage.getItem(LS_PREFIX + folderName) === "1";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function setFolderCollapsed(folderName, collapsed) {
+    try {
+      if (collapsed) {
+        localStorage.setItem(LS_PREFIX + folderName, "1");
+      } else {
+        localStorage.removeItem(LS_PREFIX + folderName);
+      }
+    } catch (e) { /* non-fatal */ }
+  }
+
+  /** Return the folder name that contains the given page path, or null. */
+  function folderOfPath(pagePath) {
+    if (!pagePath) return null;
+    var slash = pagePath.indexOf("/");
+    return slash === -1 ? null : pagePath.slice(0, slash);
+  }
+
+  /** Toggle a folder's collapsed state (called from chevron click). */
+  function toggleFolder(folderName) {
+    var group = tree.querySelector('.folder-group[data-folder="' + CSS.escape(folderName) + '"]');
+    if (!group) return;
+    var btn = group.querySelector(".folder-chevron-btn");
+    var list = group.querySelector(".page-list");
+    var collapsed = group.classList.toggle("folder-collapsed");
+    if (btn) {
+      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      btn.textContent = collapsed ? "▸" : "▾";
+    }
+    if (list) {
+      list.hidden = collapsed;
+    }
+    setFolderCollapsed(folderName, collapsed);
+  }
+
+  /** Ensure a folder is expanded (called when navigating into it). */
+  function expandFolder(folderName) {
+    var group = tree.querySelector('.folder-group[data-folder="' + CSS.escape(folderName) + '"]');
+    if (!group) return;
+    if (!group.classList.contains("folder-collapsed")) return; // already open
+    var btn = group.querySelector(".folder-chevron-btn");
+    var list = group.querySelector(".page-list");
+    group.classList.remove("folder-collapsed");
+    if (btn) {
+      btn.setAttribute("aria-expanded", "true");
+      btn.textContent = "▾";
+    }
+    if (list) {
+      list.hidden = false;
+    }
+    setFolderCollapsed(folderName, false);
+  }
+
+  /** Build HTML for one folder group. collapsed = initial collapsed state. */
+  function buildFolderGroupHtml(folderName, fps, collapsed, summary) {
+    var escapedName = escHtml(folderName);
+    var chevron = collapsed ? "▸" : "▾";
+    var html = '<div class="folder-group' + (collapsed ? " folder-collapsed" : "") + '"' +
+      ' data-folder="' + escapedName + '"' +
+      ' role="group" aria-label="' + escapedName + '">';
+
+    html += '<div class="folder-label">' +
+      '<button class="folder-chevron-btn" aria-label="Toggle ' + escapedName + '" aria-expanded="' + (collapsed ? "false" : "true") + '" data-folder-toggle="' + escapedName + '">' + chevron + '</button>' +
+      '<button class="folder-name-btn" data-folder-index="' + escapedName + '" title="' + (summary ? escHtml(summary) : 'Open ' + escapedName + '/INDEX.md') + '">' + escapedName + '</button>' +
+      '</div>';
+
+    if (fps.length > 0) {
+      html += '<ul class="page-list"' + (collapsed ? ' hidden' : '') + '>';
+      fps.forEach(function (p) {
+        html +=
+          '<li class="page-item"><a href="#" data-path="' +
+          escHtml(p.path) +
+          '" title="' +
+          escHtml(p.summary || p.path) +
+          '">' +
+          '<span class="page-label-text">' + escHtml(pageLabel(p)) + "</span>" +
+          renderPill(p.path) +
+          "</a></li>";
+      });
+      html += "</ul>";
+    }
+    html += "</div>";
+    return html;
+  }
+
   // ── render sidebar ──────────────────────────────────────────────────────────
 
   function buildSidebar(data) {
@@ -610,6 +717,9 @@
 
     var folders = data.folders || [];
     var pages = data.pages || [];
+
+    // The active folder (so we can force it expanded even if collapsed in localStorage)
+    var activeFolder = folderOfPath(_currentPagePath);
 
     // Index pages by folder
     var byFolder = {};
@@ -627,27 +737,9 @@
     // Folders with known purpose
     folders.forEach(function (f) {
       var fps = byFolder[f.name] || [];
-      html += '<div class="folder-group" role="group" aria-label="' + escHtml(f.name) + '">';
-      html +=
-        '<div class="folder-label"><span class="folder-icon">▸</span>' +
-        escHtml(f.name) +
-        "</div>";
-      if (fps.length > 0) {
-        html += '<ul class="page-list">';
-        fps.forEach(function (p) {
-          html +=
-            '<li class="page-item"><a href="#" data-path="' +
-            escHtml(p.path) +
-            '" title="' +
-            escHtml(p.summary || p.path) +
-            '">' +
-            '<span class="page-label-text">' + escHtml(pageLabel(p)) + "</span>" +
-            renderPill(p.path) +
-            "</a></li>";
-        });
-        html += "</ul>";
-      }
-      html += "</div>";
+      // Force-expand the active folder; otherwise restore persisted state
+      var collapsed = (f.name === activeFolder) ? false : isFolderCollapsed(f.name);
+      html += buildFolderGroupHtml(f.name, fps, collapsed, f.summary || "");
       // remove from byFolder so we don't re-render in the "orphan" pass
       delete byFolder[f.name];
     });
@@ -657,22 +749,8 @@
       .sort()
       .forEach(function (folder) {
         var fps = byFolder[folder];
-        html += '<div class="folder-group" role="group" aria-label="' + escHtml(folder) + '">';
-        html +=
-          '<div class="folder-label"><span class="folder-icon">▸</span>' +
-          escHtml(folder) +
-          "</div>";
-        html += '<ul class="page-list">';
-        fps.forEach(function (p) {
-          html +=
-            '<li class="page-item"><a href="#" data-path="' +
-            escHtml(p.path) +
-            '">' +
-            '<span class="page-label-text">' + escHtml(pageLabel(p)) + "</span>" +
-            renderPill(p.path) +
-            "</a></li>";
-        });
-        html += "</ul></div>";
+        var collapsed = (folder === activeFolder) ? false : isFolderCollapsed(folder);
+        html += buildFolderGroupHtml(folder, fps, collapsed, "");
       });
 
     // Loose pages (no folder)
@@ -919,11 +997,37 @@
   // Wire the tree click handler ONCE here so it is never duplicated by _refreshSidebar()
   // calling buildSidebar() on every revision change.
   tree.addEventListener("click", function (e) {
+    // Chevron toggle button — collapse/expand the folder, no navigation
+    var chevronBtn = e.target.closest("button[data-folder-toggle]");
+    if (chevronBtn) {
+      e.preventDefault();
+      toggleFolder(chevronBtn.dataset.folderToggle);
+      return;
+    }
+    // Folder name button — open folder's INDEX.md
+    var nameBtn = e.target.closest("button[data-folder-index]");
+    if (nameBtn) {
+      e.preventDefault();
+      var folder = nameBtn.dataset.folderIndex;
+      // Ensure the folder is expanded when navigating into it
+      expandFolder(folder);
+      navigateTo(folder + "/INDEX.md");
+      return;
+    }
+    // Regular page link
     var a = e.target.closest("a[data-path]");
     if (!a) return;
     e.preventDefault();
     navigateTo(a.dataset.path);
   });
+
+  // Wire the Home button (sidebar title) to load root INDEX.md
+  var homeBtn = document.getElementById("sidebar-home-btn");
+  if (homeBtn) {
+    homeBtn.addEventListener("click", function () {
+      navigateTo("INDEX.md");
+    });
+  }
 
   // Fetch staleness status in parallel with the tree — updates sidebar pills when ready.
   fetchStatus();
@@ -940,6 +1044,20 @@
       if (hash) {
         var decoded = decodeURIComponent(hash);
         navigateTo(decoded);
+      } else {
+        // Landing state: no hash → try to load root INDEX.md as the home page.
+        fetch("/api/page?path=INDEX.md")
+          .then(function (r) {
+            if (!r.ok) return null;
+            return r.json();
+          })
+          .then(function (pageData) {
+            if (pageData && !pageData.error) {
+              renderPage(pageData);
+            }
+            // If INDEX.md doesn't exist, the "Select a page…" placeholder remains.
+          })
+          .catch(function () { /* fall through to placeholder */ });
       }
     })
     .catch(function (err) {
