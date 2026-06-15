@@ -1,0 +1,14 @@
+{
+  "id": "ahh",
+  "title": "kb bootstrap — read-only enumeration report (signals + source counts)",
+  "description": "FIRST: 'git merge main --no-edit' in worktree; verify scripts/kb.py has cmd_init, count helpers, repo_root, the vendored recall, RECALL path. If not, STATUS: BLOCKED.\n\nAdd a READ-ONLY `kb.py bootstrap` subcommand that emits the data the interactive gates need. It must NOT write anything (scaffolding is the existing `kb init`, run after Gate 1).\n\nReport (human-readable + a --json mode):\n1. STRUCTURE SIGNALS to inform the MECE proposal: presence of an existing ADR dir (docs/adrs, docs/decisions, etc.), a docs/ dir, service/ops indicators (Dockerfile, Procfile, k8s/, compose) → suggest operations/; library/package indicators; whether repo-wiki/ already exists; whether CLAUDE.md/AGENTS.md exist.\n2. SOURCE COUNTS for the ingestion-scope gate:\n   - chats: count of sessions for this project via vendored recall list-mode (reuse the recall text-parse from count_uningested_chat_sessions; exclude agent-* subagents); show count + oldest/newest dates if cheap.\n   - commits: 'git rev-list --count HEAD' + first/last commit dates.\n   - existing docs: list README, docs/** (cap), any ADR dir, CLAUDE.md/AGENTS.md.\n   - code: top-level source dirs (+ rough file counts) as candidate subsystems.\nBest-effort: any source that errors → report it as unavailable, never crash.\n\nTest:\n- python3 -m py_compile kb.py\n- in a temp git repo (with some commits + a docs/ dir + a Dockerfile): 'kb bootstrap' prints structure signals (flags the Dockerfile → operations/, lists docs), commit count + span, code top-dirs; '--json' returns valid JSON; writes nothing (git status clean after).",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "xsl",
+  "acceptance_criteria": "kb bootstrap is READ-ONLY; reports structure signals + source counts (chats via recall excl. subagents, commits via git, docs list, code top-dirs); --json works; writes nothing; py_compile passes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-15T06:56:51.814984Z",
+  "updated_at": "2026-06-15T06:56:51.814984Z"
+}

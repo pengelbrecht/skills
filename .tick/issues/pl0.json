@@ -3,7 +3,7 @@
   "title": "Docs + init idempotency + end-to-end integration",
   "description": "FIRST: 'git merge main --no-edit'; verify all triggers + verify helper merged.\n\nFinalize:\n- Update references/activation.md (move post-commit, PreCompact, SessionEnd, SessionStart chat catch-up from 'designed/not-wired' to 'wired'; document the delta/surfaced-cursor and that staleness is announced once), references/intake.md (chat catch-up now auto-triggered; the trigger table), SKILL.md (the activation section + kb verify).\n- Confirm cmd_init installs ALL hooks idempotently and they coexist: SessionStart, UserPromptSubmit(comments), PreCompact, SessionEnd in .claude/settings.json + .git/hooks/post-commit; double-init produces no duplicates anywhere.\n- End-to-end smoke covering: delta staleness (announce once), post-commit nudge, the chat-trigger hooks present + emitting, kb verify clearing a page.\n\nTest:\n- fresh temp repo: double 'kb.py init' → 1 each of SessionStart/UserPromptSubmit/PreCompact/SessionEnd; 1 post-commit git hook.\n- docs reference the now-wired triggers.\n- py_compile passes.",
   "notes": "2026-06-15 07:45 - [human] ONBOARDING DOCS: add a 'New collaborator' section (SKILL.md + repo-wiki/INDEX.md) — what's inherited on clone (repo-wiki/, scripts, .claude/settings.json hooks) vs local-only (git post-commit hook, .ingest/.comments state); the one-time Claude-Code hook-approval prompt is expected; either run 'kb.py init' once or just open a session (SessionStart self-heals). State plainly that fully zero-touch isn't possible (git-hook + trust-prompt are hard constraints); 'one approval then automatic' is the target.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -16,5 +16,7 @@
   "acceptance_criteria": "all hooks install idempotently + coexist (double-init clean); activation.md/intake.md/SKILL.md updated to reflect wired triggers + delta surfacing; end-to-end smoke green",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-14T21:05:59.005402Z",
-  "updated_at": "2026-06-15T05:45:11.711251Z"
+  "updated_at": "2026-06-15T06:11:04.55658Z",
+  "closed_at": "2026-06-15T06:11:04.55658Z",
+  "closed_reason": "Completed: activation.md/intake.md/SKILL.md updated to wired triggers + delta-cursor + self-heal; new-collaborator onboarding (SKILL.md + INDEX.root); init idempotency confirmed (4 Claude hooks + post-commit, double-init clean); e2e smoke green (delta/post-commit/self-heal/verify, cross-trigger dedup confirmed)."
 }

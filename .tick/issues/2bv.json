@@ -3,7 +3,7 @@
   "title": "Chat-extraction triggers: PreCompact + SessionEnd + SessionStart catch-up",
   "description": "FIRST: 'git merge main --no-edit'; verify cmd_init's hook-install helpers + cmd_catchup + the ingest watermark exist.\n\nWire the chat stream to fire automatically (currently manual kb catchup). Three triggers, all installed idempotently by cmd_init and coexisting with the existing SessionStart + comments UserPromptSubmit hooks:\n\n1. PreCompact hook → INJECT a directive (hook prints context, can't run LLM triage): 'Context is about to compact. Before it does, run the chat-extraction prompt (references/extraction.md Prompt 1) over the recent conversation, propose durable knowledge (propose-only), then advance the watermark.' Agent extracts from live in-window context. Dedup via the watermark so repeated compactions only mine the window since the last extraction.\n2. SessionEnd hook → at a clean end, nudge/queue a catch-up so the just-finished session gets mined (transcript-based; agent runs Prompt 1 next session or now).\n3. SessionStart catch-up → cmd_session_start (or its background reconcile) ALSO checks the chat watermark and surfaces 'N un-ingested sessions since last ingest — run kb catchup' (currently only staleness reconciles). Git-independent so zero-diff sessions are caught.\n\nProvide hook templates under assets/templates/ (precompact-hook.sh, sessionend-hook.sh) + install logic.\n\nTest:\n- fresh init: .claude/settings.json has SessionStart, UserPromptSubmit(comments), PreCompact, SessionEnd — exactly one each; double init no dupes.\n- PreCompact/SessionEnd hook scripts emit the expected directive/nudge text when run.\n- session-start surfaces un-ingested chat count given a watermark behind available sessions.",
   "notes": "2026-06-15 07:45 - [human] SELF-HEALING BOOTSTRAP (add to SessionStart): since .claude/settings.json IS git-tracked (so SessionStart rides along on clone) but the git post-commit hook is NOT, make the SessionStart hook detect+install the missing .git/hooks/post-commit and create .ingest/ if absent. Net: a fresh clone, after the one-time Claude-Code hook-approval prompt, bootstraps the non-inheritable git hook automatically on first session. Keep it idempotent + silent when already present.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -14,5 +14,7 @@
   "acceptance_criteria": "PreCompact (extract-before-compaction directive) + SessionEnd (clean-end capture) + SessionStart chat catch-up all installed idempotently and coexisting; hooks emit correct directives; session-start surfaces un-ingested session count; git-independent",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-14T21:05:58.9538Z",
-  "updated_at": "2026-06-15T05:45:11.690961Z"
+  "updated_at": "2026-06-15T06:01:26.794315Z",
+  "closed_at": "2026-06-15T06:01:26.794315Z",
+  "closed_reason": "Completed: PreCompact (extract-before-compaction directive) + SessionEnd (catch-up nudge) + SessionStart chat-count (background reconcile, recall text-parse excluding subagents) + self-heal bootstrap (recreates missing post-commit + .ingest on session-start). 4 Claude hooks idempotent; recall --json defect fixed. Verified all."
 }

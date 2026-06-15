@@ -1,0 +1,12 @@
+{
+  "id": "xsl",
+  "title": "Interactive cold-start / bootstrap (existing repo → proposed starter wiki)",
+  "description": "Drop the skill into a repo with history → a PROPOSED starter wiki, with the user involved at two explicit gates before any mining. Propose-not-apply, stingy, always-MECE.\n\nFlow: GATE 1 agree structure (MECE, adapted to this repo's signals, recorded in the resolver) → scaffold (kb init) → GATE 2 agree ingestion scope per source using REAL COUNTS (chats/commits/docs/code) → mine within scope → propose a small starter set (migrate docs, chat backfill via extraction Prompt 1, decision-shaped commits, code orientation + a few from-code caches; mark gaps, don't fabricate) → user reviews/approves → commit.\n\nBuild: read-only `kb bootstrap` report (structure signals + source counts), references/bootstrap.md interactive protocol (2 gates + mining prompt), SKILL.md wiring. Stdlib, propose-not-apply, MECE. Context: docs/ideas/repo-wiki.md, references/{structure,extraction,claude-md-shim}.md, scripts/kb.py (cmd_init, cmd_catchup, count_uningested_chat_sessions).",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-15T06:56:51.78527Z",
+  "updated_at": "2026-06-15T06:56:51.78527Z"
+}

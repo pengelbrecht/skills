@@ -2,7 +2,7 @@
   "id": "g1x",
   "title": "kb verify \u003cpage\u003e — bump verified_against in one command",
   "description": "FIRST: 'git merge main --no-edit'; verify T1's surfaced cursor exists.\n\nAdd 'kb.py verify \u003cpage\u003e [--note \u003ctext\u003e]': set the page's frontmatter verified_against to the current HEAD short-sha and append a Timeline entry ('- \u003cdate\u003e — re-verified @\u003csha\u003e' + optional note). Sandbox \u003cpage\u003e to the wiki (resolve + relative_to). Also clear the page from the surfaced cursor (T1) so it can re-surface if it drifts again. This turns clearing a re-read STALE page into one command (STALE→FRESH).\n\nTest (temp wiki):\n- a stale page (covers changed since verified_against) → 'kb.py verify \u003cpage\u003e' → frontmatter verified_against == HEAD; a Timeline 're-verified' line appended; 'kb status' shows it fresh; surfaced cursor entry cleared.\n- traversal on \u003cpage\u003e → error.\n- py_compile passes.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "kb verify \u003cpage\u003e bumps verified_against to HEAD + appends a Timeline entry + clears the surfaced-cursor entry; page becomes fresh; path sandboxed; py_compile passes",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-14T21:05:58.979414Z",
-  "updated_at": "2026-06-14T21:05:58.979414Z"
+  "updated_at": "2026-06-15T06:04:57.69544Z",
+  "closed_at": "2026-06-15T06:04:57.69544Z",
+  "closed_reason": "Completed: kb verify \u003cpage\u003e [--note] bumps verified_against→HEAD, prepends Timeline re-verified entry (preserves existing), clears surfaced cursor → STALE→FRESH in one command; path sandboxed. Verified end-to-end."
 }
