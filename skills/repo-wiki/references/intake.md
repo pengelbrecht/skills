@@ -46,18 +46,37 @@ non-derivable/durable/grounded filter and the two-pass (tacit capture + code-syn
 structure — lives in `references/extraction.md`. That's the actual extraction logic;
 this file just covers the plumbing around it.
 
-## Watermarks are local
+## Watermarks: a local cursor + a committed seed baseline
 
 Chat streams are per-developer, per-machine (each person's transcripts are on their own
-disk); the wiki is shared via git. So the ingest watermark is **local — gitignored**
-(`repo-wiki/.ingest/state.json`). Only the resulting wiki edits are committed. A
-committed watermark would wrongly tell teammate B they're "caught up" on A's chats.
+disk); the wiki is shared via git. So the **per-machine ingest cursor is local —
+gitignored** (`repo-wiki/.ingest/state.json`). A committed *session-id* cursor would
+wrongly tell teammate B they're "caught up" on A's chats — session ids only exist on the
+machine that produced them.
 
-State file shape:
+Local cursor shape (gitignored):
 
 ```json
 { "git_sha": "a1b2c3d", "chat_session_id": "1f794dc0-…", "ts": "2026-06-13T16:41:00Z" }
 ```
+
+But there is one piece of ingest state that IS legitimately shared: the **seed
+baseline** (`repo-wiki/.ingest/seed.json`, *tracked*). When a wiki is seeded it mines
+the pre-seed chat history into committed pages — so "history up to the seed time is
+accounted for" is a fact about the *committed wiki*, true for everyone. The seed baseline
+records only portable fields — `{ "git_sha", "ts" }`, **no** machine-specific session id:
+
+```json
+{ "git_sha": "f00dbabe", "ts": "2026-06-15T16:40:00Z" }
+```
+
+`kb watermark --seed` writes both (local cursor with the seed machine's newest session
+id, plus this committed baseline). The boundary used by the heartbeat counter and
+`kb catchup` (`uningested_sessions`) is the local cursor overlaid on the seed baseline:
+prefer the local session id when it's present in the listing; otherwise fall back to the
+baseline's `ts` (date boundary). That date fallback is what stops a **fresh clone** —
+empty local cursor, seed id from another machine — from re-reporting the entire pre-seed
+history. The counter and catchup read the same boundary, so they always agree.
 
 A single id/timestamp cursor handles the normal "all sessions after it" case. To
 survive true holes (session 5 ingested but 4 wasn't), also keep an `ingested.log` of
@@ -84,7 +103,8 @@ python3 scripts/vendor/recall/read_session.py <transcript-path>
 ```
 
 The recall index (`~/.recall.db`) is machine-local cache — consistent with the
-local-watermark model. Only wiki edits are committed.
+local-cursor model. Committed artifacts are the wiki edits plus the portable seed
+baseline (`repo-wiki/.ingest/seed.json`); the per-machine cursor stays gitignored.
 
 ## Code-synthesis on git change
 

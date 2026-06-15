@@ -368,12 +368,22 @@ Approve all / approve individually / reject: ___
 
 ### Commit on approval
 
-On user approval (full or partial), write the approved pages to disk and commit:
+On user approval (full or partial), write the approved pages to disk, **stamp the ingest
+watermark**, then commit:
 
 ```bash
-git add repo-wiki/
+# Seeding mined the chat history, so mark it ingested — otherwise the heartbeat will
+# nag the entire pre-seed history as "un-ingested". This writes the local cursor AND a
+# committed, portable baseline (repo-wiki/.ingest/seed.json) so clones don't re-nag.
+python3 skills/repo-wiki/scripts/kb.py watermark --seed
+
+git add repo-wiki/                       # includes the tracked seed.json baseline
 git commit -m "feat(repo-wiki): cold-start bootstrap — initial wiki seeded"
 ```
+
+`kb watermark --seed` is mandatory after any seed that mined chat history: a freshly
+seeded wiki should report ~0 un-ingested, and `kb catchup` should list nothing — both
+surfaces read the same watermark, so they must agree. Skipping it leaves a false backlog.
 
 Pages not approved remain as proposals in the conversation (not written). The user can
 approve them in a follow-up.

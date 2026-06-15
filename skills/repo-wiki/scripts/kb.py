@@ -300,23 +300,27 @@ def cmd_session_end(args):
 
 def cmd_catchup(args):
     root = repo_root()
-    wm = load_watermark(root)
+    wm = effective_watermark(root)
     print(f"ingest watermark: chat_session_id={wm.get('chat_session_id') or '(none)'} "
-          f"git_sha={wm.get('git_sha') or '(none)'}\n")
+          f"git_sha={wm.get('git_sha') or '(none)'} ts={wm.get('ts') or '(none)'}\n")
     if not RECALL.exists():
         sys.exit(f"vendored recall not found at {RECALL}")
-    print(f"enumerating sessions for this project (last {args.days} days)…\n")
-    proc = subprocess.run(
-        [sys.executable, str(RECALL), "--project", str(root), "--days", str(args.days),
-         "--limit", "2000"],
-        capture_output=True, text=True,
-    )
-    sys.stdout.write(proc.stdout)
-    if proc.returncode != 0:
-        sys.stderr.write(proc.stderr)
+    # List EXACTLY the set the session-start counter counts — real sessions strictly
+    # newer than the watermark, subagent transcripts dropped — so the two surfaces
+    # agree (an empty backlog yields an empty list, not a wall of every session).
+    pending = uningested_sessions(root, args.days)
+    if not pending:
+        print(f"0 un-ingested chat session(s) in the last {args.days} days — "
+              "everything up to the watermark is accounted for. Nothing to catch up.")
+        return 0
+    print(f"{len(pending)} un-ingested chat session(s) "
+          f"(last {args.days} days, newest first):\n")
+    for s in pending:
+        print(f"  {s['date'] or '????-??-??'}  ID: {s['sid']}")
+        print(f"      File: {s['fpath']}")
     print(
-        "\nNext: triage sessions newer than the watermark. Read one with:\n"
-        f"  python3 {RECALL.parent / 'read_session.py'} <File-path-from-above>\n"
+        "\nNext: triage these (newest first). Read one with:\n"
+        f"  python3 {RECALL.parent / 'read_session.py'} <File-path-above>\n"
         "Then file durable knowledge into repo-wiki/ (propose-only), and advance:\n"
         "  python3 kb.py watermark --set-session <newest-session-id> --set-sha <HEAD-sha>"
     )
@@ -326,6 +330,26 @@ def cmd_catchup(args):
 def cmd_watermark(args):
     root = repo_root()
     wm = load_watermark(root)
+    if getattr(args, "seed", False):
+        # Stamp the watermark to the newest session the seed covered, so a
+        # freshly-seeded (fully-mined) wiki reports ~0 un-ingested instead of its
+        # entire pre-seed history. Writes BOTH the local cursor (precise, with the
+        # machine-specific session id) and the committed, portable baseline.
+        sessions = _parse_recall_sessions(root, days=getattr(args, "days", 30) or 30)
+        newest_sid = sessions[0]["sid"] if sessions else ""
+        sha = head_sha(root)
+        ts = datetime.now(timezone.utc).isoformat()
+        wm["chat_session_id"] = newest_sid
+        wm["git_sha"] = sha
+        wm["ts"] = ts
+        save_watermark(root, wm)
+        save_seed_baseline(root, {"git_sha": sha, "ts": ts})
+        print("seed watermark stamped (local cursor + committed baseline):")
+        print(json.dumps({"chat_session_id": newest_sid, "git_sha": sha, "ts": ts}, indent=2))
+        print("\nCommit the portable baseline so clones don't re-nag the whole history:")
+        print("  git add repo-wiki/.ingest/seed.json && "
+              "git commit -m 'chore(repo-wiki): seed ingest baseline'")
+        return 0
     if args.set_session or args.set_sha:
         if args.set_session:
             wm["chat_session_id"] = args.set_session
@@ -472,72 +496,102 @@ def cmd_post_commit(args):
 _UNINGESTED_CAP = 50  # cap the first-run count so an unindexed watermark can't inflate it
 
 
-def count_uningested_chat_sessions(root, days=30):
-    """Count real chat sessions newer than the chat watermark, via vendored recall.
+def _parse_recall_sessions(root, days=30):
+    """Parse vendored recall's list-mode output into real (non-subagent) sessions.
 
-    Recall has no --json flag; we parse its list-mode text output. Format per entry:
+    Recall has no --json flag; we parse its text output. Format per entry:
 
         [1] 2026-06-15 | slug | <title> [claude]
             /path/to/project
             ID: <session-id>
             File: /Users/.../projects/<slug>/<uuid>.jsonl
 
-    Sessions are listed newest-first. We:
-      - skip subagent transcripts (File path contains '/subagents/' OR ID starts
-        with 'agent-') — those are orchestration noise, not user chats to mine;
-      - walk the newest-first real-session IDs and count until we hit the watermark
-        id (stop there). If the watermark id is absent, count all real sessions,
-        capped at _UNINGESTED_CAP to avoid a huge first-run number.
-
-    Best-effort: recall missing / errors / no watermark → 0, never raises.
+    Returns a list of {"sid", "fpath", "date"} dicts, newest-first, with subagent
+    transcripts dropped (File path contains '/subagents/' OR ID starts with 'agent-')
+    — those are orchestration noise, not user chats to mine. [] on any error.
     """
+    if not RECALL.exists():
+        return []
     try:
-        if not RECALL.exists():
-            return 0
-        wm = load_watermark(root)
-        watermark_sid = wm.get("chat_session_id") or ""
         proc = subprocess.run(
             [sys.executable, str(RECALL), "--project", str(root), "--days", str(days),
              "--limit", "2000"],
             capture_output=True, text=True, timeout=30,
         )
         if proc.returncode != 0:
-            return 0
+            return []
+    except Exception:
+        return []
 
-        # Parse (ID, File) pairs in listing order (newest-first). Each entry has an
-        # "ID:" line followed by a "File:" line; pair them up as we scan.
-        entries = []  # list of (sid, file_path)
-        pending_id = None
-        for raw in proc.stdout.splitlines():
-            line = raw.strip()
-            if line.startswith("ID:"):
-                pending_id = line[len("ID:"):].strip()
-            elif line.startswith("File:"):
-                file_path = line[len("File:"):].strip()
-                if pending_id is not None:
-                    entries.append((pending_id, file_path))
-                    pending_id = None
-        # Discard an ID with no following File line — incomplete entry, drop it.
-        # (Don't append with empty fpath; the /subagents/ filter can't catch it.)
+    out = []
+    pending_date = pending_id = None
+    for raw in proc.stdout.splitlines():
+        line = raw.strip()
+        m = re.match(r"^\[\d+\]\s+(\d{4}-\d{2}-\d{2})", line)
+        if m:
+            pending_date = m.group(1)
+            pending_id = None
+            continue
+        if line.startswith("ID:"):
+            pending_id = line[len("ID:"):].strip()
+            continue
+        if line.startswith("File:"):
+            fpath = line[len("File:"):].strip()
+            if pending_id is not None:
+                out.append({"sid": pending_id, "fpath": fpath, "date": pending_date})
+            pending_id = pending_date = None
+    return [
+        s for s in out
+        if "/subagents/" not in s["fpath"] and not s["sid"].startswith("agent-")
+    ]
 
-        # Filter out subagent transcripts.
-        real = [
-            sid for (sid, fpath) in entries
-            if "/subagents/" not in fpath and not sid.startswith("agent-")
-        ]
 
-        if not watermark_sid:
-            return min(len(real), _UNINGESTED_CAP)
+def effective_watermark(root):
+    """The watermark that boundary logic should use: the committed, portable seed
+    baseline (git_sha + ts, survives a clone) overlaid by the local state.json
+    (which may add a machine-specific chat_session_id and a fresher cursor)."""
+    wm = load_seed_baseline(root)
+    for k, v in load_watermark(root).items():
+        if v:
+            wm[k] = v
+    return wm
 
-        count = 0
-        for sid in real:
-            if sid == watermark_sid:
-                return count  # reached the watermark — everything before it is un-ingested
-            count += 1
-            if count >= _UNINGESTED_CAP:
-                return count
-        # Watermark id not found in the listing — count all real sessions (capped).
-        return min(count, _UNINGESTED_CAP)
+
+def uningested_sessions(root, days=30):
+    """Real chat sessions strictly newer than the effective watermark — the SINGLE
+    source of truth shared by the session-start counter and `kb catchup`, so the two
+    surfaces never disagree.
+
+    Boundary, in priority order:
+      1. chat_session_id present AND found in the listing → everything newer than it.
+      2. else a timestamp (ts, e.g. the committed seed baseline) → sessions whose
+         date is strictly after the ts date. This is what stops a fresh clone — whose
+         local cursor is empty and whose seed session id lives on another machine —
+         from re-reporting the whole pre-seed history as un-ingested.
+      3. else (no watermark at all) → all real sessions (first-run, pre-seed repo).
+    Newest-first.
+    """
+    sessions = _parse_recall_sessions(root, days)
+    wm = effective_watermark(root)
+    sid = wm.get("chat_session_id") or ""
+    ts_date = (wm.get("ts") or "")[:10]  # YYYY-MM-DD
+
+    if sid and any(s["sid"] == sid for s in sessions):
+        out = []
+        for s in sessions:
+            if s["sid"] == sid:
+                break  # reached the watermark — everything before it is accounted for
+            out.append(s)
+        return out
+    if ts_date:
+        return [s for s in sessions if (s["date"] or "") > ts_date]
+    return sessions
+
+
+def count_uningested_chat_sessions(root, days=30):
+    """Count of un-ingested real chat sessions (capped). Best-effort → 0 on error."""
+    try:
+        return min(len(uningested_sessions(root, days)), _UNINGESTED_CAP)
     except Exception:
         return 0
 
@@ -666,10 +720,18 @@ def install_plumbing(root):
     wiki = root / "repo-wiki"
     wiki.mkdir(exist_ok=True)
 
-    # local ingest watermark (gitignored)
+    # ingest state: the per-machine files are gitignored, but seed.json (the portable
+    # ingest baseline) must stay tracked, so we ignore specific files rather than the
+    # whole .ingest/ dir. Migrate older repos that ignored the entire directory.
     ingest = wiki / ".ingest"
     ingest.mkdir(exist_ok=True)
-    ensure_gitignore(root, ["repo-wiki/.ingest/", "repo-wiki/.comments/"])
+    migrate_ingest_gitignore(root)
+    ensure_gitignore(root, [
+        "repo-wiki/.ingest/state.json",
+        "repo-wiki/.ingest/status.json",
+        "repo-wiki/.ingest/surfaced.json",
+        "repo-wiki/.comments/",
+    ])
 
     return {
         "session_start":  install_hook(root),
@@ -763,7 +825,8 @@ def cmd_init(args):
     print(f"post-commit git hook:   {'installed in .git/hooks/post-commit' if hooks['post_commit'] else 'already present / skipped'}")
     print("  Note: .git/hooks/ is local-only — not shared by clone. Collaborators")
     print("  get the hook re-installed automatically via the SessionStart self-heal.")
-    print("ingest watermark:       repo-wiki/.ingest/ (gitignored)")
+    print("ingest state:           repo-wiki/.ingest/{state,status,surfaced}.json (gitignored);")
+    print("                        seed.json baseline is tracked (run `kb watermark --seed`)")
     print("comments store:         repo-wiki/.comments/ (gitignored)")
     print()
     print("The wiki structure is NOT created automatically — it must be agreed")
@@ -800,7 +863,8 @@ def cmd_plumbing(args):
     print(f"SessionEnd hook:        {'installed (SessionEnd)' if hooks['session_end'] else 'already present / skipped'}")
     print(f"post-commit git hook:   {'installed in .git/hooks/post-commit' if hooks['post_commit'] else 'already present / skipped'}")
     print("  Note: .git/hooks/ is local-only — not shared by clone.")
-    print("ingest watermark:       repo-wiki/.ingest/ (gitignored)")
+    print("ingest state:           repo-wiki/.ingest/{state,status,surfaced}.json (gitignored);")
+    print("                        seed.json baseline is tracked (run `kb watermark --seed`)")
     print("comments store:         repo-wiki/.comments/ (gitignored)")
     return 0
 
@@ -888,6 +952,30 @@ def save_watermark(root, wm):
     p.write_text(json.dumps(wm, indent=2) + "\n", encoding="utf-8")
 
 
+def seed_baseline_path(root):
+    # COMMITTED (tracked) — unlike state.json/status.json/surfaced.json, this file is
+    # NOT gitignored, so a clone inherits the ingest boundary and doesn't re-nag the
+    # whole pre-seed history. Holds only portable fields (git_sha, ts) — no
+    # machine-specific chat_session_id.
+    return root / "repo-wiki" / ".ingest" / "seed.json"
+
+
+def load_seed_baseline(root):
+    p = seed_baseline_path(root)
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def save_seed_baseline(root, data):
+    p = seed_baseline_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
 def read_template(name):
     return (TEMPLATES / name).read_text(encoding="utf-8")
 
@@ -903,6 +991,30 @@ def ensure_gitignore(root, entries):
             f.write("# repo-wiki local ingest state\n")
             for e in add:
                 f.write(e + "\n")
+
+
+def migrate_ingest_gitignore(root):
+    """Older installs ignored the whole `repo-wiki/.ingest/` dir, which would also
+    ignore the now-tracked seed.json baseline. Replace that broad line in-place with
+    the specific per-machine files. No-op if the broad line isn't present."""
+    gi = root / ".gitignore"
+    if not gi.exists():
+        return
+    lines = gi.read_text(encoding="utf-8").splitlines()
+    if "repo-wiki/.ingest/" not in lines:
+        return
+    specific = [
+        "repo-wiki/.ingest/state.json",
+        "repo-wiki/.ingest/status.json",
+        "repo-wiki/.ingest/surfaced.json",
+    ]
+    out = []
+    for ln in lines:
+        if ln == "repo-wiki/.ingest/":
+            out.extend(s for s in specific if s not in lines and s not in out)
+        else:
+            out.append(ln)
+    gi.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
 # ── .claude/settings.json hook installers ─────────────────────────────────────
@@ -2225,6 +2337,11 @@ def main():
     wp = sub.add_parser("watermark", help="show / advance the ingest watermark")
     wp.add_argument("--set-session", help="advance the chat session cursor")
     wp.add_argument("--set-sha", help="advance the git sha cursor (default: HEAD)")
+    wp.add_argument("--seed", action="store_true",
+                    help="stamp watermark to the newest session + write the committed "
+                         "seed baseline (run once after seeding a wiki)")
+    wp.add_argument("--days", type=int, default=30,
+                    help="look-back window for --seed's newest-session scan (default 30)")
 
     sub.add_parser("session-start", help="fast, non-blocking heartbeat for the SessionStart hook")
 
