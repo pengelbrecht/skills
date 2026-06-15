@@ -54,19 +54,51 @@ quick yes/no.
 If you internalize nothing else: **persist only the non-derivable, and mine the
 chats.**
 
-## Quickstart — `init`
+## Quickstart — three setup commands
 
-Scaffold the wiki, install the activation hook, and create the shim:
+Three composable commands cover setup; pick the one that fits:
+
+| Command | What it does | When to use |
+|---|---|---|
+| `kb init` | Scaffold default structure **+** install all hooks | New/empty repo — one-shot |
+| `kb plumbing` | Install hooks + gitignore only — **no dirs** | Any time; order-independent |
+| `kb scaffold` | Create dirs + INDEX files only — **no hooks** | After Gate 1 (bootstrap flow) |
+
+### `init` — new-repo one-shot
 
 ```bash
 python3 scripts/kb.py init        # run from the repo root
 ```
 
-This creates `repo-wiki/` with a root `INDEX.md` (the resolver + manual) and the
-recommended category folders, installs a `SessionStart` hook into
-`.claude/settings.json`, gitignores the local ingest watermark, and — if a
-`CLAUDE.md`/`AGENTS.md` exists — offers to migrate its *knowledge* into the wiki and
-leave a thin shim behind.
+Creates `repo-wiki/` with a root `INDEX.md` (the resolver + manual) and the
+recommended category folders, installs all hooks into `.claude/settings.json` and
+`.git/hooks/post-commit`, and gitignores the local ingest watermark.
+**Use this for a brand-new/empty repo only.** Do not run bare `kb init` when
+bootstrapping an existing repo — it scaffolds the default structure before Gate 1
+where the right structure is agreed (use `kb scaffold` + `kb plumbing` instead).
+
+### `plumbing` — hooks only
+
+```bash
+python3 scripts/kb.py plumbing    # order-independent; run any time
+```
+
+Installs all hooks (`SessionStart`, `UserPromptSubmit/comments`, `PreCompact`,
+`SessionEnd`, `post-commit`) and gitignore entries. Creates `repo-wiki/.ingest/`.
+No dirs or INDEX files are created. Idempotent. Run before or after `kb scaffold`.
+
+### `scaffold` — structure only
+
+```bash
+python3 scripts/kb.py scaffold                       # default 5 core categories
+python3 scripts/kb.py scaffold --add operations      # add extra category
+python3 scripts/kb.py scaffold --only product,decisions --add operations  # custom set
+```
+
+Creates `repo-wiki/` + the agreed category folders + INDEX files. No hooks installed.
+`--only <comma-list>` restricts the core set; `--add <name>` appends extra categories.
+Idempotent: never clobbers existing INDEX files. Use after Gate 1 agreement during
+the bootstrap flow to scaffold exactly the agreed-upon structure.
 
 Then read `references/structure.md` and seed the obvious pages (product, a couple of
 constraints, any decisions you already know). A new wiki is small — `INDEX.md` plus a
@@ -74,9 +106,9 @@ few real pages — not a tree of empty folders.
 
 ## Bootstrapping an existing repo
 
-`init` scaffolds the *structure*. **`bootstrap` seeds the *content*** — it is the
-guided cold-start for a repo that already has history (commits, chats, docs) worth
-mining. Drop the skill into any repo with history and run:
+**`bootstrap` seeds the *content*** — it is the guided cold-start for a repo that
+already has history (commits, chats, docs) worth mining. Drop the skill into any repo
+with history and run:
 
 ```bash
 python3 scripts/kb.py bootstrap   # read-only signal report; nothing is written
@@ -88,7 +120,9 @@ gates:
 
 - **Gate 1 — Agree the MECE structure.** Present a proposed category set adapted to the
   repo's signals (ops indicators, ADR directory, etc.). The user confirms or adjusts.
-  Agreement is recorded in the root `INDEX.md` resolver. No mining begins until Gate 1 closes.
+  Agreement is recorded in the root `INDEX.md` resolver.  Only after Gate 1: run
+  `kb scaffold [--only ...] [--add ...]` to create exactly the agreed folders.
+  No mining begins until Gate 1 closes.
 - **Gate 2 — Agree the ingestion scope.** For each source (chats, commits, docs, code),
   show counts and estimated effort. The user picks which sources to mine and how far back.
   Mining begins only after Gate 2 closes.
@@ -98,15 +132,19 @@ so a large repo's cold-start is fast and non-blocking. Every generated page is a
 **proposal only**; nothing is written to disk without explicit human approval
 (propose-not-apply invariant applies end-to-end).
 
-**`init` vs `bootstrap`:**
+> **`kb plumbing` is order-independent.** Run it at any time during the bootstrap flow
+> (even before Gate 1) to wire all hooks. It is fully decoupled from structure.
+> `kb scaffold` is what follows Gate 1 — not `kb init`.
 
-| | `kb init` | `kb bootstrap` |
-|---|---|---|
-| What | Scaffold empty structure | Seed content in an existing repo |
-| Gates | None — idempotent setup | Two interactive human gates |
-| Mining | None | Parallel subagents across chats/commits/docs/code |
-| Output | Folder tree + hooks | Proposed wiki pages, ready to approve |
-| When | New repo or fresh install | Repo already has history to mine |
+**Command comparison:**
+
+| | `kb init` | `kb plumbing` | `kb scaffold` | `kb bootstrap` |
+|---|---|---|---|---|
+| What | Default structure + all hooks | Hooks only | Dirs + INDEX only | Read-only signal report |
+| Gates | None | None | None | Leads into two interactive gates |
+| Mining | None | None | None | Parallel subagents (after gates) |
+| Output | Folder tree + hooks | Hooks + gitignore | Folder tree | Proposed wiki pages |
+| When | **New/empty repo only** | Any time (bootstrap or later) | After Gate 1 | Existing repo with history |
 
 ## Structure (recommended, not prescribed)
 
@@ -267,8 +305,9 @@ summary and spawns a detached `kb.py reconcile` to refresh it). See
 
 ## Activation — wired triggers
 
-Maintenance is an **install problem, not a willpower problem**. `init` installs four
-committed Claude hooks and one git hook. After that, maintenance is automatic:
+Maintenance is an **install problem, not a willpower problem**. `kb init` (new-repo
+one-shot) or `kb plumbing` (standalone, order-independent) installs four committed
+Claude hooks and one git hook. After that, maintenance is automatic:
 
 | Hook | Type | Fires | Effect |
 |---|---|---|---|

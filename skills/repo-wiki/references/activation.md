@@ -19,9 +19,11 @@ triggers once, prefer committed/shared config, and make drift visible.
 
 ## How usage is ensured
 
-1. **Bootstrap installs the triggers.** `kb.py init` writes four hooks into
+1. **Bootstrap installs the triggers.** `kb.py init` (new/empty repo one-shot) or
+   `kb.py plumbing` (standalone, order-independent) writes four hooks into
    `.claude/settings.json` (SessionStart, UserPromptSubmit, PreCompact, SessionEnd),
    installs `.git/hooks/post-commit`, and gitignores the local ingest watermark.
+   Plumbing is fully independent of wiki structure — run it before or after `kb scaffold`.
    One-time setup, not recurring willpower.
 2. **Prefer committed/shared config.** `.claude/settings.json` hooks (SessionStart,
    UserPromptSubmit, PreCompact, SessionEnd) are committed and cloned automatically.

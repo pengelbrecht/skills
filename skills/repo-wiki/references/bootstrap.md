@@ -1,9 +1,14 @@
 # Bootstrap — interactive cold-start protocol
 
 Bootstrap = the guided procedure that **seeds content** in an existing repo. It is
-distinct from `kb init`, which only *scaffolds* the folder structure. Bootstrap drives
-two human gates before any mining runs, proposes but never applies changes, and fans
-mining work out to parallel subagents so the cold-start is fast.
+distinct from `kb init`, which is for **new/empty repos only** (see note below).
+Bootstrap drives two human gates before any mining runs, proposes but never applies
+changes, and fans mining work out to parallel subagents so the cold-start is fast.
+
+> **Do not run bare `kb init` when bootstrapping an existing repo.** `kb init` scaffolds
+> the *default* structure immediately, before Gate 1 where the right structure is agreed.
+> Use `kb scaffold` after Gate 1 and `kb plumbing` at any time instead (see Step 0.5).
+> `kb init` is only for a brand-new/empty repo with no history.
 
 Three invariants that apply end-to-end:
 
@@ -44,6 +49,21 @@ The report provides two blocks of information needed for the two gates:
 - code dirs: top-level source directories with rough file counts (candidate subsystems)
 
 Load this output into context before presenting Gate 1.
+
+---
+
+## Step 0.5 — Install plumbing (order-independent)
+
+Run `kb plumbing` any time — before or after Gate 1, before or after `kb scaffold`.
+It installs all hooks (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `SessionEnd`,
+`post-commit`) and gitignores the local ingest dirs.  No dirs or INDEX files are created.
+
+```bash
+python3 scripts/kb.py plumbing
+```
+
+This is idempotent and safe to run immediately.  The hooks work even before any wiki
+structure exists — plumbing is fully independent of structure.
 
 ---
 
@@ -104,14 +124,24 @@ including any deviations from the default set (e.g., a renamed category, an adde
 custom slot, an omitted standard slot with the reason). This is the resolver all mining
 subagents will use in Step 3.
 
-### Then scaffold
+### Then scaffold the agreed structure
 
-Only after Gate 1 agreement is recorded: run `kb init` to scaffold `repo-wiki/` with
-the agreed folders.
+Only after Gate 1 agreement is recorded: run `kb scaffold` with the agreed category
+set, using `--only` and/or `--add` to reflect any edits from the default set.
 
 ```bash
-python3 scripts/kb.py init
+# Core example: default 5 categories (product/glossary/architecture/constraints/decisions)
+python3 scripts/kb.py scaffold
+
+# With an extra category (e.g. operations suggested by bootstrap signals):
+python3 scripts/kb.py scaffold --add operations
+
+# Restrict to agreed subset + add custom:
+python3 scripts/kb.py scaffold --only product,decisions,architecture --add operations
 ```
+
+`kb scaffold` creates `repo-wiki/` + the agreed folders + INDEX files. **It installs no
+hooks** — plumbing is separate and order-independent (see Step 0.5 below).
 
 Do **not** scaffold or mine before the structure is agreed. The resolver must exist
 before any page is proposed, so that every proposal has exactly one valid home.

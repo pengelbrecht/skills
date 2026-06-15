@@ -7,8 +7,12 @@ Git decides staleness; the model only ever writes/proposes content. Nothing here
 auto-applies edits to your knowledge base — these commands report and scaffold.
 
 Subcommands:
-  init           Scaffold repo-wiki/, install the SessionStart hook, gitignore the
-                 watermark, and detect CLAUDE.md/AGENTS.md for migration.
+  init           One-shot for a NEW/empty repo: scaffold repo-wiki/ (default structure)
+                 + install all hooks/plumbing. Safe to re-run (idempotent).
+  plumbing       Install all hooks and gitignore entries only — no dir/INDEX scaffolding.
+                 Order-independent: run any time, before or after `scaffold`.
+  scaffold       Create repo-wiki/ dirs + INDEX files only — no hooks installed.
+                 Use after Gate 1 agreement (bootstrap flow). Flags: --add, --only.
   status         Report pages whose `covers` paths changed since `verified_against`
                  (soft signal — never a gate).
   catchup        Enumerate chat sessions since the watermark (via vendored recall) so
@@ -631,66 +635,112 @@ def spawn_background(argv, cwd):
         pass
 
 
-def cmd_init(args):
-    root = repo_root()
+def install_plumbing(root):
+    """Install all hooks and gitignore entries.  Creates repo-wiki/.ingest/.
+    Does NOT create repo-wiki/ category dirs or INDEX files.  Idempotent.
+
+    Returns a dict: {hook_name: True (installed) | False (already present/skipped)}.
+    """
     wiki = root / "repo-wiki"
-    created = []
     wiki.mkdir(exist_ok=True)
-
-    root_index = wiki / "INDEX.md"
-    if not root_index.exists():
-        root_index.write_text(read_template("INDEX.root.md"), encoding="utf-8")
-        created.append("repo-wiki/INDEX.md")
-
-    folder_tmpl = read_template("INDEX.folder.md")
-    for name, purpose in CATEGORIES:
-        d = wiki / name
-        d.mkdir(exist_ok=True)
-        idx = d / "INDEX.md"
-        if not idx.exists():
-            body = folder_tmpl.replace("<folder>", name)
-            body = f"# {name}/\n\n{purpose}\n\nOrganized: <set the local convention as a rule>.\n"
-            idx.write_text(body, encoding="utf-8")
-            created.append(f"repo-wiki/{name}/INDEX.md")
-    for name in SCAFFOLD_ONLY:
-        (wiki / name).mkdir(exist_ok=True)
-        keep = wiki / name / ".gitkeep"
-        if not keep.exists():
-            keep.write_text("", encoding="utf-8")
 
     # local ingest watermark (gitignored)
     ingest = wiki / ".ingest"
     ingest.mkdir(exist_ok=True)
     ensure_gitignore(root, ["repo-wiki/.ingest/", "repo-wiki/.comments/"])
 
-    # SessionStart hook
-    installed = install_hook(root)
+    return {
+        "session_start":  install_hook(root),
+        "comments":       install_comments_hook(root),
+        "precompact":     install_precompact_hook(root),
+        "session_end":    install_session_end_hook(root),
+        "post_commit":    install_post_commit_hook(root),
+    }
 
-    # UserPromptSubmit hook (comments)
-    comments_installed = install_comments_hook(root)
 
-    # PreCompact hook
-    precompact_installed = install_precompact_hook(root)
+def scaffold_structure(root, categories=None, add=None, only=None):
+    """Create repo-wiki/ + category folders + INDEX files.
+    Does NOT install any hooks or plumbing.  Idempotent (never clobbers existing INDEX files).
 
-    # SessionEnd hook
-    session_end_installed = install_session_end_hook(root)
+    Parameters
+    ----------
+    categories : list of (name, purpose) tuples; defaults to CATEGORIES
+    add        : list of extra category names (appended after core set)
+    only       : list of category names to restrict the core set to
 
-    # post-commit git hook
-    post_commit_installed = install_post_commit_hook(root)
+    Returns a list of paths created (relative strings).
+    """
+    if categories is None:
+        categories = CATEGORIES
+
+    # Build the effective list of (name, purpose) pairs.
+    if only is not None:
+        only_set = {n.strip() for n in only}
+        effective = [(n, p) for n, p in categories if n in only_set]
+    else:
+        effective = list(categories)
+
+    # Append extra categories from --add; use a generic purpose line.
+    if add:
+        existing_names = {n for n, _ in effective}
+        for extra in add:
+            extra = extra.strip()
+            if extra and extra not in existing_names:
+                effective.append((extra, f"Purpose of {extra}/ — set the local convention."))
+                existing_names.add(extra)
+
+    wiki = root / "repo-wiki"
+    wiki.mkdir(exist_ok=True)
+    created = []
+
+    root_index = wiki / "INDEX.md"
+    if not root_index.exists():
+        root_index.write_text(read_template("INDEX.root.md"), encoding="utf-8")
+        created.append("repo-wiki/INDEX.md")
+
+    for name, purpose in effective:
+        d = wiki / name
+        d.mkdir(exist_ok=True)
+        idx = d / "INDEX.md"
+        if not idx.exists():
+            body = f"# {name}/\n\n{purpose}\n\nOrganized: <set the local convention as a rule>.\n"
+            idx.write_text(body, encoding="utf-8")
+            created.append(f"repo-wiki/{name}/INDEX.md")
+
+    # SCAFFOLD_ONLY dirs (inbox, archive) are always created but get no INDEX.
+    for name in SCAFFOLD_ONLY:
+        d = wiki / name
+        d.mkdir(exist_ok=True)
+        keep = d / ".gitkeep"
+        if not keep.exists():
+            keep.write_text("", encoding="utf-8")
+
+    return created
+
+
+def cmd_init(args):
+    """One-shot for a new/empty repo: scaffold default structure + install plumbing."""
+    root = repo_root()
+
+    # Scaffold the default structure (idempotent — won't clobber existing INDEX files).
+    created = scaffold_structure(root)
+
+    # Install all hooks and plumbing (idempotent).
+    hooks = install_plumbing(root)
 
     # detect instruction files
     shims = [f for f in ("CLAUDE.md", "AGENTS.md", "GEMINI.md") if (root / f).exists()]
 
-    print("repo-wiki initialized.\n")
+    print("repo-wiki initialized (scaffold + plumbing).\n")
     if created:
         print("created:")
         for c in created:
             print(f"  + {c}")
-    print(f"\nSessionStart hook:      {'installed in .claude/settings.json' if installed else 'already present / skipped'}")
-    print(f"Comments hook:          {'installed (UserPromptSubmit)' if comments_installed else 'already present / skipped'}")
-    print(f"PreCompact hook:        {'installed (PreCompact)' if precompact_installed else 'already present / skipped'}")
-    print(f"SessionEnd hook:        {'installed (SessionEnd)' if session_end_installed else 'already present / skipped'}")
-    print(f"post-commit git hook:   {'installed in .git/hooks/post-commit' if post_commit_installed else 'already present / skipped'}")
+    print(f"\nSessionStart hook:      {'installed in .claude/settings.json' if hooks['session_start'] else 'already present / skipped'}")
+    print(f"Comments hook:          {'installed (UserPromptSubmit)' if hooks['comments'] else 'already present / skipped'}")
+    print(f"PreCompact hook:        {'installed (PreCompact)' if hooks['precompact'] else 'already present / skipped'}")
+    print(f"SessionEnd hook:        {'installed (SessionEnd)' if hooks['session_end'] else 'already present / skipped'}")
+    print(f"post-commit git hook:   {'installed in .git/hooks/post-commit' if hooks['post_commit'] else 'already present / skipped'}")
     print("  Note: .git/hooks/ is local-only — not shared by clone. Collaborators")
     print("  get the hook re-installed automatically via the SessionStart self-heal.")
     print("ingest watermark:       repo-wiki/.ingest/ (gitignored)")
@@ -703,6 +753,58 @@ def cmd_init(args):
         print("assets/templates/shim.md). This is propose-only; review the diff.")
     print("\nNext: read references/structure.md, then seed product/, a couple of")
     print("constraints/, and any decisions you already know. Keep it small and real.")
+    return 0
+
+
+def cmd_plumbing(args):
+    """Install all hooks and gitignore entries only — no dir/INDEX scaffolding.
+
+    Idempotent and order-independent: run any time, before or after `scaffold`.
+    """
+    root = repo_root()
+    hooks = install_plumbing(root)
+
+    print("repo-wiki plumbing installed.\n")
+    print(f"SessionStart hook:      {'installed in .claude/settings.json' if hooks['session_start'] else 'already present / skipped'}")
+    print(f"Comments hook:          {'installed (UserPromptSubmit)' if hooks['comments'] else 'already present / skipped'}")
+    print(f"PreCompact hook:        {'installed (PreCompact)' if hooks['precompact'] else 'already present / skipped'}")
+    print(f"SessionEnd hook:        {'installed (SessionEnd)' if hooks['session_end'] else 'already present / skipped'}")
+    print(f"post-commit git hook:   {'installed in .git/hooks/post-commit' if hooks['post_commit'] else 'already present / skipped'}")
+    print("  Note: .git/hooks/ is local-only — not shared by clone.")
+    print("ingest watermark:       repo-wiki/.ingest/ (gitignored)")
+    print("comments store:         repo-wiki/.comments/ (gitignored)")
+    return 0
+
+
+def cmd_scaffold(args):
+    """Create repo-wiki/ dirs + INDEX files only — no hooks installed.
+
+    Use after Gate 1 agreement during the bootstrap flow.  Pass --add and/or --only
+    to reflect the agreed-upon structure.  Idempotent: never clobbers existing INDEX files.
+    """
+    root = repo_root()
+
+    # Parse --add: comma-list or multiple flag invocations → flat list of names
+    add = []
+    if args.add:
+        for item in args.add:
+            add.extend(n.strip() for n in item.split(",") if n.strip())
+
+    # Parse --only: comma-list → set of names to restrict core categories to
+    only = None
+    if args.only:
+        only = [n.strip() for n in args.only.split(",") if n.strip()]
+
+    created = scaffold_structure(root, add=add if add else None, only=only)
+
+    print("repo-wiki scaffold done.\n")
+    if created:
+        print("created:")
+        for c in created:
+            print(f"  + {c}")
+    else:
+        print("(nothing new — all dirs/INDEX files already exist)")
+    print("\nNo hooks installed. Run `kb.py plumbing` to wire the Claude and git hooks.")
     return 0
 
 
@@ -1909,7 +2011,11 @@ def cmd_bootstrap(args):
 
     print("\n" + "=" * 64)
     print("READ-ONLY: no files were created or modified.")
-    print("Next: `kb.py init` to scaffold repo-wiki/ (after Gate 1).")
+    print("Next: follow references/bootstrap.md.")
+    print("  kb.py plumbing   — install hooks any time (order-independent)")
+    print("  kb.py scaffold   — scaffold the AGREED structure after Gate 1")
+    print("  (do NOT run bare `kb.py init` on an existing repo — it scaffolds")
+    print("   the default structure before Gate 1 agreement)")
     print("=" * 64)
 
     return 0
@@ -2005,7 +2111,28 @@ def main():
     ap = argparse.ArgumentParser(prog="kb.py", description="repo-wiki command line")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("init", help="scaffold the wiki + install the hook")
+    sub.add_parser("init", help="new-repo one-shot: scaffold default structure + install all hooks (idempotent)")
+
+    sub.add_parser("plumbing", help="install all hooks + gitignore entries only — no dir/INDEX scaffolding (idempotent)")
+
+    scp = sub.add_parser(
+        "scaffold",
+        help="create repo-wiki/ dirs + INDEX files only — no hooks installed; use after Gate 1 agreement",
+    )
+    scp.add_argument(
+        "--add",
+        metavar="CAT",
+        action="append",
+        default=None,
+        help="add extra category (repeatable; also accepts comma-list, e.g. --add operations,roadmap)",
+    )
+    scp.add_argument(
+        "--only",
+        metavar="CATS",
+        default=None,
+        help="restrict core categories to this comma-separated list (e.g. --only product,decisions)",
+    )
+    scp.add_argument("--wiki", default=None, help="(unused, accepted for forward-compat)")
 
     bp = sub.add_parser(
         "bootstrap",
@@ -2071,6 +2198,8 @@ def main():
     args = ap.parse_args()
     dispatch = {
         "init": cmd_init,
+        "plumbing": cmd_plumbing,
+        "scaffold": cmd_scaffold,
         "bootstrap": cmd_bootstrap,
         "status": cmd_status,
         "outline": cmd_outline,
