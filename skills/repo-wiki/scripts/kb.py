@@ -171,7 +171,8 @@ def compute_status(root, wiki, pages):
         if hit:
             action = "re-synthesize" if fm.get("source") == "from-code" else "review"
             stale.append({"page": rel, "source": fm.get("source", "canonical"),
-                          "action": action, "changed": hit[:3]})
+                          "action": action, "changed": hit[:3],
+                          "verified_against": va})
         else:
             fresh += 1
     return {"pages": len(pages), "fresh": fresh, "stale": stale, "unverified": unverified}
@@ -183,6 +184,24 @@ def cmd_status(args):
     if not wiki.exists():
         sys.exit("no repo-wiki/ here — run `kb.py init` first")
     st = compute_status(root, wiki, load_pages(wiki))
+
+    new_only = getattr(args, "new", False)
+    if new_only:
+        # Delta mode: print only newly-stale pages and mark them surfaced.
+        surfaced = load_surfaced(root)
+        delta = newly_stale(st["stale"], surfaced)
+        if delta:
+            print(f"NEWLY STALE ({len(delta)} page(s) — soft signal, review not a gate):")
+            for s in delta:
+                print(f"  • {s['page']}  [{s['source']}] → {s['action']}")
+                for h in s["changed"]:
+                    print(f"        ↳ changed: {h}")
+            mark_surfaced(surfaced, delta)
+            save_surfaced(root, surfaced)
+        # No output when nothing is newly stale.
+        return 1 if delta else 0
+
+    # Full standing report (does NOT touch the surfaced cursor).
     print(f"repo-wiki status — {st['pages']} pages, {st['fresh']} fresh, "
           f"{len(st['stale'])} stale, {len(st['unverified'])} unverified\n")
     if st["stale"]:
@@ -278,9 +297,9 @@ def cmd_watermark(args):
 
 def cmd_session_start(args):
     """Blocking heartbeat — MUST stay fast (output is injected into context, so it gates
-    session start). Does NO git scan: it counts pages (cheap fs walk), reports the LAST
-    cached status, and spawns a detached `reconcile` to refresh the cache for next time.
-    Never raises."""
+    session start). Does NO git scan: it counts pages (cheap fs walk), reports only the
+    NEWLY-stale delta (first time a page drifts), and spawns a detached `reconcile` to
+    refresh the cache for next time. Never raises."""
     try:
         root = repo_root()
         wiki = root / "repo-wiki"
@@ -291,9 +310,18 @@ def cmd_session_start(args):
               f"pull pages by relevance (covers/grep). {n} pages.")
         cache = load_status_cache(root)
         if cache:
-            ns = len(cache.get("stale", []))
-            print(f"[repo-wiki] As of {cache.get('ts', '?')[:19]}: {ns} stale"
-                  f"{' — run `kb.py status` to review' if ns else ''}.")
+            stale_list = cache.get("stale", [])
+            if stale_list:
+                surfaced = load_surfaced(root)
+                delta = newly_stale(stale_list, surfaced)
+                if delta:
+                    print(f"[repo-wiki] {len(delta)} newly stale page(s) since last verified"
+                          " — run `kb.py status` to review:")
+                    for s in delta:
+                        print(f"  • {s['page']}")
+                    mark_surfaced(surfaced, delta)
+                    save_surfaced(root, surfaced)
+                # If nothing is newly stale, stay quiet about staleness.
         else:
             print("[repo-wiki] (freshness scan running in background; check `kb.py status`).")
         # Refresh the cache without blocking this session.
@@ -336,6 +364,60 @@ def save_status_cache(root, st):
     p = status_cache_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(st, indent=2) + "\n", encoding="utf-8")
+
+
+# ── surfaced cursor ───────────────────────────────────────────────────────────
+def surfaced_path(root):
+    return root / "repo-wiki" / ".ingest" / "surfaced.json"
+
+
+def load_surfaced(root):
+    """Load the surfaced cursor: {<page>|<verified_against>: true, ...}.
+
+    Returns an empty dict if the file is missing or malformed.
+    """
+    p = surfaced_path(root)
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def save_surfaced(root, data):
+    """Persist the surfaced cursor atomically."""
+    p = surfaced_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def _surfaced_key(page, verified_against):
+    """Stable key for a (page, verified_against) pair."""
+    return f"{page}|{verified_against}"
+
+
+def newly_stale(stale_list, surfaced):
+    """Return the subset of stale_list entries not yet in the surfaced cursor.
+
+    Each entry must have 'page' and 'verified_against' (as compute_status now supplies).
+    """
+    out = []
+    for entry in stale_list:
+        key = _surfaced_key(entry["page"], entry.get("verified_against", ""))
+        if key not in surfaced:
+            out.append(entry)
+    return out
+
+
+def mark_surfaced(surfaced, pages):
+    """Record (page, verified_against) pairs as surfaced in-place.
+
+    'pages' is a list of stale-entry dicts (must have 'page' and 'verified_against').
+    """
+    for entry in pages:
+        key = _surfaced_key(entry["page"], entry.get("verified_against", ""))
+        surfaced[key] = True
 
 
 def spawn_background(argv, cwd):
@@ -1211,6 +1293,8 @@ def main():
 
     sp = sub.add_parser("status", help="report stale pages (soft signal)")
     sp.add_argument("-v", "--verbose", action="store_true", help="also list unverified pages")
+    sp.add_argument("--new", action="store_true",
+                    help="print only newly-stale pages (delta since last surfaced) and mark them surfaced")
 
     sub.add_parser("outline", help="emit wiki structure for context (load before extracting)")
 
