@@ -489,9 +489,8 @@ def count_uningested_chat_sessions(root, days=30):
                 if pending_id is not None:
                     entries.append((pending_id, file_path))
                     pending_id = None
-        # Handle an ID with no following File line (defensive).
-        if pending_id is not None:
-            entries.append((pending_id, ""))
+        # Discard an ID with no following File line — incomplete entry, drop it.
+        # (Don't append with empty fpath; the /subagents/ filter can't catch it.)
 
         # Filter out subagent transcripts.
         real = [
@@ -573,10 +572,20 @@ def load_surfaced(root):
 
 
 def save_surfaced(root, data):
-    """Persist the surfaced cursor atomically."""
+    """Persist the surfaced cursor atomically (write to temp then rename)."""
+    import tempfile
     p = surfaced_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    fd, tmp_path = tempfile.mkstemp(dir=str(p.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        Path(tmp_path).replace(p)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def _surfaced_key(page, verified_against):
@@ -784,8 +793,10 @@ def install_post_commit_hook(root):
 
     if hook_file.exists():
         content = hook_file.read_text(encoding="utf-8")
-        # Idempotency: check if kb.py post-commit is already wired
-        if "kb.py" in content and "post-commit" in content:
+        # Idempotency: only skip if our exact hook line (which always contains
+        # "repo-wiki") is already present — avoids false-positive on an existing
+        # hook that merely mentions "kb.py" and "post-commit" for other reasons.
+        if "kb.py" in content and "post-commit" in content and "repo-wiki" in content:
             return False
         # Append our line (preserve the user's existing hook)
         with hook_file.open("a", encoding="utf-8") as f:
@@ -1557,23 +1568,26 @@ def cmd_verify(args):
 
             text = "---" + fm_block + rest
         else:
-            # Malformed frontmatter (no closing ---): treat as no frontmatter.
-            text = f"---\nverified_against: {new_sha}\n---\n" + text
+            # Malformed frontmatter (no closing ---): prepend new frontmatter and
+            # keep the original text (including its opening ---) as body, separated
+            # by a blank line so no content is lost and parse_frontmatter isn't confused.
+            text = f"---\nverified_against: {new_sha}\n---\n\n" + text
     else:
         # No frontmatter at all — prepend a minimal one.
         text = f"---\nverified_against: {new_sha}\n---\n\n" + text
 
     # ── append Timeline entry ─────────────────────────────────────────────────
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    note_suffix = f" — {args.note}" if args.note else ""
+    note_text = args.note.replace("\n", " ") if args.note else None
+    note_suffix = f" — {note_text}" if note_text else ""
     timeline_entry = f"- {today} — re-verified @{new_sha}{note_suffix}"
 
     timeline_header = "## Timeline"
     tl_pattern = re.compile(r"^##\s+Timeline\s*$", re.M)
-    if tl_pattern.search(text):
+    m = tl_pattern.search(text)
+    if m:
         # Find the position of the last character of the "## Timeline" line
         # and insert our entry as the first bullet after it.
-        m = tl_pattern.search(text)
         insert_pos = m.end()
         # Skip a single trailing newline that closes the header line.
         if insert_pos < len(text) and text[insert_pos] == "\n":
