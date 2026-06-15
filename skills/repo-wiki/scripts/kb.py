@@ -1501,6 +1501,107 @@ def _save_comments(comments_file, records):
         raise
 
 
+def cmd_verify(args):
+    """Bump verified_against to HEAD, append a Timeline entry, clear the surfaced cursor.
+
+    <page> is relative to the wiki root (e.g. ``decisions/0002-foo.md``).
+    """
+    # ── resolve wiki ──────────────────────────────────────────────────────────
+    root = repo_root()
+    if args.wiki:
+        wiki = Path(args.wiki).resolve()
+    else:
+        wiki = root / "repo-wiki"
+    if not wiki.exists():
+        sys.exit(f"wiki directory does not exist: {wiki}\nRun `kb.py init` first.")
+
+    # ── sandbox <page> ────────────────────────────────────────────────────────
+    page_arg = args.page
+    # Reject absolute paths and obvious traversal before any Path ops.
+    if not page_arg or page_arg.startswith("/") or ".." in page_arg.split("/"):
+        sys.exit(f"error: invalid page path (must be relative to wiki root, no '..') — {page_arg!r}")
+
+    target = (wiki / page_arg).resolve()
+    # resolve()+relative_to() is the real sandbox gate.
+    try:
+        target.relative_to(wiki.resolve())
+    except ValueError:
+        sys.exit(f"error: path escapes wiki root — {page_arg!r}")
+
+    if not target.exists():
+        sys.exit(f"error: page not found: {target}")
+    if not target.is_file() or target.suffix != ".md":
+        sys.exit(f"error: target is not a .md file: {target}")
+
+    # ── determine new sha ────────────────────────────────────────────────────
+    new_sha = head_sha(root)
+    if not new_sha:
+        sys.exit("error: could not determine HEAD sha (is this a git repo with commits?)")
+
+    # ── read page ─────────────────────────────────────────────────────────────
+    text = target.read_text(encoding="utf-8")
+
+    # ── patch verified_against in frontmatter ─────────────────────────────────
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            fm_block = text[3:end]  # content between the two ---
+            rest = text[end:]       # starts with "\n---" …
+
+            va_pattern = re.compile(r"^(verified_against\s*:).*$", re.M)
+            if va_pattern.search(fm_block):
+                fm_block = va_pattern.sub(rf"\g<1> {new_sha}", fm_block)
+            else:
+                # Append the field at the end of the frontmatter block.
+                fm_block = fm_block.rstrip("\n") + f"\nverified_against: {new_sha}\n"
+
+            text = "---" + fm_block + rest
+        else:
+            # Malformed frontmatter (no closing ---): treat as no frontmatter.
+            text = f"---\nverified_against: {new_sha}\n---\n" + text
+    else:
+        # No frontmatter at all — prepend a minimal one.
+        text = f"---\nverified_against: {new_sha}\n---\n\n" + text
+
+    # ── append Timeline entry ─────────────────────────────────────────────────
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    note_suffix = f" — {args.note}" if args.note else ""
+    timeline_entry = f"- {today} — re-verified @{new_sha}{note_suffix}"
+
+    timeline_header = "## Timeline"
+    tl_pattern = re.compile(r"^##\s+Timeline\s*$", re.M)
+    if tl_pattern.search(text):
+        # Find the position of the last character of the "## Timeline" line
+        # and insert our entry as the first bullet after it.
+        m = tl_pattern.search(text)
+        insert_pos = m.end()
+        # Skip a single trailing newline that closes the header line.
+        if insert_pos < len(text) and text[insert_pos] == "\n":
+            insert_pos += 1
+        text = text[:insert_pos] + timeline_entry + "\n" + text[insert_pos:]
+    else:
+        # No Timeline section — append one at the end.
+        if not text.endswith("\n"):
+            text += "\n"
+        text += f"\n{timeline_header}\n{timeline_entry}\n"
+
+    # ── write back ────────────────────────────────────────────────────────────
+    target.write_text(text, encoding="utf-8")
+
+    # ── clear surfaced cursor ─────────────────────────────────────────────────
+    rel = str(target.relative_to(wiki))
+    surfaced = load_surfaced(root)
+    prefix = f"{rel}|"
+    keys_to_drop = [k for k in surfaced if k.startswith(prefix)]
+    for k in keys_to_drop:
+        del surfaced[k]
+    save_surfaced(root, surfaced)
+
+    # ── report ────────────────────────────────────────────────────────────────
+    print(f"verified: {rel} @ {new_sha}")
+    return 0
+
+
 def cmd_comments(args):
     wiki = _resolve_wiki_for_comments(args)
     comments_dir = wiki / ".comments"
@@ -1618,6 +1719,11 @@ def main():
     rp = sub.add_parser("reconcile", help="heavy freshness scan → cache (run in background)")
     rp.add_argument("-v", "--verbose", action="store_true")
 
+    vp = sub.add_parser("verify", help="bump verified_against to HEAD + record Timeline entry + clear surfaced cursor")
+    vp.add_argument("page", help="page path relative to wiki root (e.g. decisions/0002-foo.md)")
+    vp.add_argument("--note", default=None, help="optional note appended to the Timeline entry")
+    vp.add_argument("--wiki", default=None, help="path to wiki dir (default: <repo>/repo-wiki)")
+
     svp = sub.add_parser("serve", help="boot local web server with /api/tree + web UI")
     svp.add_argument("--port", type=int, default=8347, help="port to listen on (default: 8347)")
     svp.add_argument("--wiki", default=None, help="path to wiki dir (default: <repo>/repo-wiki)")
@@ -1653,6 +1759,7 @@ def main():
         "session-end": cmd_session_end,
         "post-commit": cmd_post_commit,
         "reconcile": cmd_reconcile,
+        "verify": cmd_verify,
         "serve": cmd_serve,
         "comments": cmd_comments,
     }
