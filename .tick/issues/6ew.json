@@ -3,7 +3,7 @@
   "title": "Agent monitoring: watch-loop support + passive hook + consumption instructions",
   "description": "FIRST STEP: 'git merge main --no-edit' in the worktree; verify /api/comment + kb.py comments exist.\n\nMake the channel agent-consumable:\n1. Ensure 'kb.py comments list --json --since \u003ccursor\u003e' returns open comments after a cursor (for an active watch-loop) — if not already from T1, add it.\n2. Add a UserPromptSubmit hook script/snippet (assets/templates) that prints pending open comments as a context block (PASSIVE monitor). Provide it as a template; actual install is T4/init.\n3. Document the AGENT CONSUMPTION PROTOCOL in references/web.md (or a new references/comments.md): when a comment arrives, treat it as actionable user feedback anchored to {page, section, selected_text} — the agent decides: propose a page edit (propose-only), answer the user, or file to inbox/; then 'kb.py comments resolve \u003cid\u003e'. Also document ACTIVE WATCH MODE: on 'watch the wiki for comments', the agent enters a poll loop (ScheduleWakeup/Monitor) calling 'kb.py comments list --json --since \u003ccursor\u003e' on a short interval and acting on new ones until told to stop. Add a one-line pointer in the CLAUDE.md shim + repo-wiki/INDEX.md.\n\nThis touches kb.py (maybe), a hook template, and docs — disjoint from T2's client files.\n\nTest: kb.py comments list --json --since \u003cid\u003e returns only newer comments; the hook template prints pending comments given a sample channel file; docs describe both modes.",
   "notes": "2026-06-14 15:32 - [human] AGENT UPDATES THE WIKI: a comment may ask for a change. The agent acts by EDITING the .md file directly (no server write endpoint) — the comment is the human-in-the-loop approval. Protocol: open \u003cpage\u003e at \u003cline\u003e, apply the change, append a Timeline entry + bump verified_against if appropriate, then 'kb.py comments resolve \u003cid\u003e --note'. The viewer auto-refreshes (see the new live-refresh tick) so the user sees the edit. Document this in the consumption protocol.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -14,5 +14,7 @@
   "acceptance_criteria": "comments list --json --since works; a UserPromptSubmit hook template injects pending comments; consumption + watch-mode protocol documented; shim/INDEX pointer added",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-14T13:30:43.141962Z",
-  "updated_at": "2026-06-14T13:32:08.048284Z"
+  "updated_at": "2026-06-14T13:43:48.10978Z",
+  "closed_at": "2026-06-14T13:43:48.10978Z",
+  "closed_reason": "Completed: comments-hook.sh (UserPromptSubmit passive monitor), references/comments.md (watch-loop + act-then-resolve protocol), shim+INDEX pointers, SKILL.md section. Hook prints pending comments; silent when none."
 }

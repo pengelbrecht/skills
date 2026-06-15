@@ -3,7 +3,7 @@
   "title": "Client: text-selection → floating comment button → modal → submit",
   "description": "FIRST STEP: 'git merge main --no-edit' in the worktree; verify /api/comment exists.\n\nIn assets/web (app.js, index.html, style.css): detect text selection that is fully within the MARKDOWN CONTENT AREA only (the page body container, not sidebar/frontmatter/TOC). On a non-empty selection, show a small floating 'Comment' button near the selection end. Clicking it opens a small modal: shows a short preview of the selected text, a textarea, Submit + Cancel. On Submit, POST /api/comment with {page (current page path), section (nearest preceding heading text), selected_text, comment}; on success show a brief confirmation and clear the selection/modal. Style with existing Clean-docs tokens (modal = surface bg, hairline border, single subtle shadow, accent submit button, focus rings). Esc/Cancel closes; clicking outside closes.\n\nTest: select text in a rendered page, click Comment, type, Submit -\u003e server records it (verify with kb.py comments list). Selecting text in the sidebar or TOC must NOT trigger the button.",
   "notes": "2026-06-14 15:32 - [human] ANCHOR: compute the line number client-side — the page's raw markdown is already available from /api/page ({markdown}); locate the selected_text in it to get the 1-based start line (and end line if multi-line). Send page+line(+end_line)+section+selected_text+comment. Best-effort match (selected_text disambiguates); the agent gets path+line+text together.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -14,5 +14,7 @@
   "acceptance_criteria": "Selecting text in the content area shows a comment button → modal → submit POSTs to /api/comment with page+section+selected_text+comment; sidebar/TOC selections don't trigger it; styled per tokens",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-14T13:30:43.114012Z",
-  "updated_at": "2026-06-14T13:32:08.027502Z"
+  "updated_at": "2026-06-14T13:42:15.347424Z",
+  "closed_at": "2026-06-14T13:42:15.347424Z",
+  "closed_reason": "Completed: content-area-only selection → floating comment button → modal → submit; line/end_line computed from cached raw markdown; styled per Clean-docs tokens. (Browser-verified at epic end.)"
 }

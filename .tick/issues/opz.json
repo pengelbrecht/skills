@@ -3,7 +3,7 @@
   "title": "Init wiring + docs + polish for comments",
   "description": "FIRST STEP: 'git merge main --no-edit'; verify T2 (client) + T3 (monitoring) merged.\n\nFinalize: wire kb.py init to gitignore repo-wiki/.comments/ and (optionally, prompt) install the UserPromptSubmit comments hook into .claude/settings.json. Document the whole comment feature in SKILL.md (a 'Comments / human-in-the-loop feedback' section) + ensure references/web.md covers the /api/comment route and the channel format. UX polish on the modal/button to the Clean-docs spec (placement near selection, mobile-narrow behavior, no layout shift). Update docs/ideas/repo-wiki.md if it lists this as future.\n\nTest: fresh 'kb.py init' in a temp repo gitignores .comments/; full flow smoke (select→comment→server record→kb.py comments) still green; py_compile passes.",
   "notes": "2026-06-14 15:32 - [human] Docs must also cover: the line-number anchor in the comment record, and the live auto-refresh behavior + the agent-edits-then-resolves loop.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -16,5 +16,7 @@
   "acceptance_criteria": "init gitignores .comments/ (+ optional hook install); feature documented in SKILL.md + web.md; modal polished; end-to-end smoke green",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-14T13:30:43.168817Z",
-  "updated_at": "2026-06-14T13:32:39.085758Z"
+  "updated_at": "2026-06-14T13:54:31.530776Z",
+  "closed_at": "2026-06-14T13:54:31.530776Z",
+  "closed_reason": "Completed: init gitignores .comments/ + installs idempotent comments UserPromptSubmit hook (SessionStart intact); web.md documents POST /api/comment + /api/changed + /api/revision + live-refresh; SKILL.md/idea-doc updated; modal CSS polish (--error token, overflow caps, narrow-screen)."
 }

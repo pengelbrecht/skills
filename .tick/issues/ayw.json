@@ -1,0 +1,12 @@
+{
+  "id": "ayw",
+  "title": "Freshness + chat-extraction triggers (wire the activation layer)",
+  "description": "Make the designed triggers actually fire. Today only SessionStart (standing stale count) + the comments UserPromptSubmit hook are wired; chat extraction is manual (kb catchup); staleness surfacing repeats a standing count; no post-commit/PreCompact/SessionEnd.\n\nBuild (all stdlib, propose-not-apply, soft-signal, never blocking):\n- Delta/dedupe 'surfaced' cursor so staleness is announced once on fresh→stale transition (not a standing count).\n- Post-commit git hook: cheap staleness check scoped to the commit diff + from-code re-synth proposals; soft, exits 0.\n- Chat triggers: PreCompact (inject extract-before-compaction directive, agent mines live context), SessionEnd (clean-ending capture), and wire chat catch-up into SessionStart reconciliation (currently only staleness reconciles). Git-independent so zero-diff sessions are caught; post-commit diff is only grounding when a commit coincides.\n- kb verify \u003cpage\u003e helper to bump verified_against (+Timeline) → clears a re-read page in one command.\n\nHeavily kb.py/cmd_init-centric → serial. Design context: docs/ideas/repo-wiki.md, references/{intake,activation,extraction}.md, scripts/kb.py.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-14T21:05:58.87075Z",
+  "updated_at": "2026-06-14T21:05:58.87075Z"
+}

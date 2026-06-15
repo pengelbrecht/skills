@@ -2,7 +2,7 @@
   "id": "fhe",
   "title": "Live auto-refresh: viewer updates when a wiki file changes",
   "description": "FIRST STEP: 'git merge main --no-edit' in the worktree; verify the viewer + comment client exist.\n\nGoal: when the agent edits a wiki .md (e.g. in response to a comment), the open browser view updates WITHOUT a manual reload — closing the human↔agent loop.\n\nServer (kb.py): add a cheap change signal — include an ETag or mtime+size for the page in /api/page responses, and add GET /api/changed?path=\u003crel\u003e returning the file's mtime (sandboxed like /api/page). Optionally GET /api/revision = max mtime across the wiki (for sidebar/status refresh).\n\nClient (app.js): while a page is open, poll the change signal every ~1.5s; if the viewed file changed, re-fetch /api/page and re-render in place (preserve scroll position), and refresh its staleness badge. Periodically (or on revision change) refresh the sidebar tree + status pills too. Stdlib + polling only — NO SSE/websocket.\n\nTouches kb.py (server) + app.js — runs after the comment client (1kk) to avoid app.js conflicts.\n\nTest: open a page in the browser; edit its .md on disk; within ~2s the rendered content + badge update with no manual reload; scroll position preserved.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "Editing a viewed page's .md on disk auto-updates the rendered content + staleness badge within ~2s via polling (scroll preserved); sidebar/status refresh on change; stdlib only",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-14T13:32:08.06828Z",
-  "updated_at": "2026-06-14T13:32:08.06828Z"
+  "updated_at": "2026-06-14T13:46:50.396087Z",
+  "closed_at": "2026-06-14T13:46:50.396087Z",
+  "closed_reason": "Completed: /api/changed + /api/revision + mtime in /api/page (sandboxed, 400 on traversal); client polls 1.5s, re-renders open page in place (scroll preserved) on mtime bump, refreshes sidebar/status on revision change, pauses during comment modal/selection."
 }

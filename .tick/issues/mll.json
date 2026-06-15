@@ -1,0 +1,14 @@
+{
+  "id": "mll",
+  "title": "Surfaced cursor + delta staleness (announce once)",
+  "description": "FIRST: 'git merge main --no-edit' in worktree; verify scripts/kb.py has compute_status, cmd_session_start, cmd_reconcile, load/save_status_cache.\n\nAdd a gitignored 'surfaced' cursor (repo-wiki/.ingest/surfaced.json — same pattern as the ingest watermark) recording which pages have already been ANNOUNCED stale, keyed by (page, verified_against sha they were stale against). Add helpers: newly_stale(stale_list, cursor) → pages whose fresh→stale transition hasn't been surfaced; mark_surfaced(pages). A page that is re-verified (verified_against bumped) or resolved naturally drops out and can re-surface if it drifts again.\n\nUpdate cmd_session_start to surface NEWLY stale pages (delta) instead of the standing count, marking them surfaced. Expose the delta for testing, e.g. 'kb.py status --new' prints only newly-stale (and marks them), while plain 'kb.py status' stays a full standing report.\n\nThis is the foundation/contract reused by the post-commit hook.\n\nTest:\n- temp wiki, page covers src/**, verified_against=BASE; change+commit src.\n- 'kb.py status --new' → lists the page once; second call → nothing new (cursor dedup).\n- re-verify (bump verified_against to HEAD) → page no longer stale; drift it again → re-surfaces.\n- py_compile passes.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "ayw",
+  "acceptance_criteria": "surfaced.json cursor (gitignored); newly_stale dedup so a page is announced once per fresh→stale transition; session-start surfaces delta not standing count; re-verify/resolve clears it; py_compile passes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-14T21:05:58.899362Z",
+  "updated_at": "2026-06-14T21:05:58.899362Z"
+}
