@@ -3,7 +3,7 @@
   "title": "SKILL.md wiring + reference map for bootstrap",
   "description": "FIRST: 'git merge main --no-edit'; verify kb bootstrap + references/bootstrap.md exist.\n\nWire it in:\n- SKILL.md: add a 'Bootstrapping an existing repo' section — the interactive 2-gate flow (agree MECE structure, agree ingestion scope), propose-not-apply, points to 'kb bootstrap' + references/bootstrap.md. Distinguish from plain 'kb init' (init = scaffold; bootstrap = the guided cold-start that seeds content).\n- Add a references/bootstrap.md row to the SKILL.md reference-map table.\n- Add 'bootstrap' to the kb.py subcommand list in the SKILL.md/commands section.\n- Briefly note in references/structure.md that the bootstrap Gate-1 agreement records the chosen structure in the resolver (always MECE).\n\nTest: SKILL.md references bootstrap.md + kb bootstrap; reference map updated; py_compile (if kb.py touched at all).",
   "notes": "2026-06-15 08:57 - [human] In the SKILL.md Bootstrapping section, mention that the mining phase fans out to parallel subagents (fast, non-blocking) while the gates stay interactive — point to the fan-out guidance in bootstrap.md/activation.md.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -14,5 +14,7 @@
   "acceptance_criteria": "SKILL.md has a Bootstrapping-an-existing-repo section (2 gates, propose-not-apply) linking kb bootstrap + references/bootstrap.md; reference map + command list updated",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-15T06:56:51.868436Z",
-  "updated_at": "2026-06-15T06:57:13.403241Z"
+  "updated_at": "2026-06-15T07:17:15.296715Z",
+  "closed_at": "2026-06-15T07:17:15.296715Z",
+  "closed_reason": "Completed: SKILL.md Bootstrapping section (2 gates, propose-not-apply, parallel mining fan-out, init-vs-bootstrap) + reference-map + command list; structure.md Gate-1 resolver/MECE note."
 }
