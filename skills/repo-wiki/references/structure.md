@@ -101,3 +101,13 @@ a new wiki is `INDEX.md` + a few real pages, never a tree of empty folders.
 - "To roll back: flip flag X, redeploy" → `operations/`
 - "Mid-migration REST→gRPC; new endpoints gRPC-only" → `roadmap/now.md`
 - "Trunk-based dev, squash-merge" → `conventions/`
+
+## Bootstrap Gate 1 — recording the agreed structure
+
+When cold-starting a wiki via `kb bootstrap`, Gate 1 produces an agreed category set
+(see `references/bootstrap.md`). That agreement is **recorded in the root `INDEX.md`
+resolver** — the category table and disambiguation rules are updated to reflect the
+actual chosen structure before any mining begins. Whatever structure is agreed **must
+remain MECE**: exactly one home per fact, no overlaps, no gaps. This is enforced at
+Gate 1, not after-the-fact — agreeing a MECE structure upfront is what makes every
+subsequent page-routing decision unambiguous.

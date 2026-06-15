@@ -72,6 +72,42 @@ Then read `references/structure.md` and seed the obvious pages (product, a coupl
 constraints, any decisions you already know). A new wiki is small — `INDEX.md` plus a
 few real pages — not a tree of empty folders.
 
+## Bootstrapping an existing repo
+
+`init` scaffolds the *structure*. **`bootstrap` seeds the *content*** — it is the
+guided cold-start for a repo that already has history (commits, chats, docs) worth
+mining. Drop the skill into any repo with history and run:
+
+```bash
+python3 scripts/kb.py bootstrap   # read-only signal report; nothing is written
+```
+
+Then follow `references/bootstrap.md` for the full interactive protocol. The flow is
+**multi-turn and cannot be compressed into a single command** — it requires two human
+gates:
+
+- **Gate 1 — Agree the MECE structure.** Present a proposed category set adapted to the
+  repo's signals (ops indicators, ADR directory, etc.). The user confirms or adjusts.
+  Agreement is recorded in the root `INDEX.md` resolver. No mining begins until Gate 1 closes.
+- **Gate 2 — Agree the ingestion scope.** For each source (chats, commits, docs, code),
+  show counts and estimated effort. The user picks which sources to mine and how far back.
+  Mining begins only after Gate 2 closes.
+
+Once both gates close, mining **fans out to parallel subagents** — one per source type —
+so a large repo's cold-start is fast and non-blocking. Every generated page is a
+**proposal only**; nothing is written to disk without explicit human approval
+(propose-not-apply invariant applies end-to-end).
+
+**`init` vs `bootstrap`:**
+
+| | `kb init` | `kb bootstrap` |
+|---|---|---|
+| What | Scaffold empty structure | Seed content in an existing repo |
+| Gates | None — idempotent setup | Two interactive human gates |
+| Mining | None | Parallel subagents across chats/commits/docs/code |
+| Output | Folder tree + hooks | Proposed wiki pages, ready to approve |
+| When | New repo or fresh install | Repo already has history to mine |
+
 ## Structure (recommended, not prescribed)
 
 MECE at level 1, free below it. **Everything is a folder.** Every folder has a short
@@ -195,6 +231,7 @@ edge cases: `references/comments.md`.
 ## Staleness & catch-up
 
 ```bash
+python3 scripts/kb.py bootstrap      # read-only signal report for the interactive cold-start
 python3 scripts/kb.py status         # full freshness report (live git scan)
 python3 scripts/kb.py status --new   # delta: newly stale only, surfaces each page once
 python3 scripts/kb.py catchup        # mine chat sessions since the watermark
@@ -291,6 +328,7 @@ existing file is the same triage primitive run over a file instead of a chat. Se
 | `references/pages.md` | writing a page; frontmatter; the three-way freshness model |
 | `references/intake.md` | git + chat streams, watermarks, `catchup`, the vendored recall scripts |
 | `references/activation.md` | hooks, the SessionStart heartbeat, CI backstop, install discipline |
+| `references/bootstrap.md` | cold-starting a wiki in an existing repo — the 2-gate interactive flow |
 | `references/claude-md-shim.md` | migrating CLAUDE.md/AGENTS.md; what stays vs what moves |
 | `references/web.md` | `kb serve` — run instructions, API routes, architecture, security |
 | `references/comments.md` | wiki comments — passive hook, active watch loop, act-then-resolve consumption protocol |
