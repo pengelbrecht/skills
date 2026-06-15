@@ -1616,6 +1616,302 @@ def cmd_verify(args):
     return 0
 
 
+def cmd_bootstrap(args):
+    """Read-only enumeration report: structure signals + ingestion source counts.
+
+    Gathers decision data for the interactive bootstrap protocol (Gate 1).
+    READ-ONLY: never creates or modifies any file. Safe to run repeatedly.
+    """
+    root = repo_root()
+
+    # ── 1. Structure signals ─────────────────────────────────────────────────
+
+    # ADR directory
+    adr_candidates = ["docs/adrs", "docs/adr", "docs/decisions", "adr"]
+    adr_dir = None
+    for cand in adr_candidates:
+        p = root / cand
+        if p.is_dir():
+            adr_dir = cand
+            break
+
+    # docs/ presence + rough .md count
+    docs_path = root / "docs"
+    docs_exists = docs_path.is_dir()
+    docs_md_count = 0
+    if docs_exists:
+        try:
+            docs_md_count = sum(1 for _ in docs_path.rglob("*.md"))
+        except Exception:
+            docs_md_count = -1  # unavailable
+
+    # Service / ops indicators (suggests operations/ category)
+    ops_checks = {
+        "Dockerfile": (root / "Dockerfile").is_file(),
+        "docker-compose": any(
+            f.is_file()
+            for pat in ("docker-compose.yml", "docker-compose.yaml",
+                        "docker-compose.override.yml", "docker-compose.override.yaml")
+            for f in [root / pat]
+        ),
+        "Procfile": (root / "Procfile").is_file(),
+        "k8s/": (root / "k8s").is_dir(),
+        ".github/workflows/": (root / ".github" / "workflows").is_dir(),
+        "Makefile": (root / "Makefile").is_file(),
+    }
+    ops_indicators = [k for k, v in ops_checks.items() if v]
+    suggest_operations = bool(ops_indicators)
+
+    # repo-wiki already exists?
+    repo_wiki_exists = (root / "repo-wiki").is_dir()
+
+    # Instruction files
+    instruction_files = [
+        f for f in ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
+        if (root / f).is_file()
+    ]
+
+    signals = {
+        "adr_dir": adr_dir,
+        "docs_exists": docs_exists,
+        "docs_md_count": docs_md_count,
+        "ops_indicators": ops_indicators,
+        "suggest_operations": suggest_operations,
+        "repo_wiki_exists": repo_wiki_exists,
+        "instruction_files": instruction_files,
+    }
+
+    # ── 2. Source counts ─────────────────────────────────────────────────────
+
+    # Chats — reuse count_uningested_chat_sessions logic but count ALL sessions
+    chat_count = 0
+    chat_newest = None
+    chat_oldest = None
+    chat_status = "ok"
+    try:
+        if not RECALL.exists():
+            chat_status = "unavailable (recall not found)"
+        else:
+            # Run recall and parse all real sessions (not subagent transcripts)
+            proc = subprocess.run(
+                [sys.executable, str(RECALL), "--project", str(root), "--days", "365"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if proc.returncode != 0:
+                chat_status = "unavailable (recall error)"
+            else:
+                # Parse entries: look for date on the [N] header line, ID, File
+                entries = []
+                pending_date = None
+                pending_id = None
+                for raw in proc.stdout.splitlines():
+                    line = raw.strip()
+                    # Header line: [N] YYYY-MM-DD | slug | title [model]
+                    m_header = re.match(r"^\[\d+\]\s+(\d{4}-\d{2}-\d{2})", line)
+                    if m_header:
+                        pending_date = m_header.group(1)
+                        pending_id = None
+                        continue
+                    if line.startswith("ID:"):
+                        pending_id = line[len("ID:"):].strip()
+                        continue
+                    if line.startswith("File:"):
+                        fpath = line[len("File:"):].strip()
+                        if pending_id is not None:
+                            entries.append((pending_id, fpath, pending_date))
+                        pending_id = None
+                        pending_date = None
+
+                real = [
+                    (sid, fpath, date) for (sid, fpath, date) in entries
+                    if "/subagents/" not in fpath and not sid.startswith("agent-")
+                ]
+                chat_count = len(real)
+                # Sessions are listed newest-first
+                if real:
+                    chat_newest = real[0][2]   # date of newest session
+                    chat_oldest = real[-1][2]  # date of oldest session
+    except Exception as exc:
+        chat_status = f"unavailable ({exc})"
+        chat_count = 0
+
+    chats = {
+        "count": chat_count,
+        "newest": chat_newest,
+        "oldest": chat_oldest,
+        "status": chat_status,
+    }
+
+    # Commits
+    commit_count = None
+    commit_first_date = None
+    commit_last_date = None
+    commit_status = "ok"
+    try:
+        out, code = git("rev-list", "--count", "HEAD", cwd=root)
+        if code == 0 and out.strip().isdigit():
+            commit_count = int(out.strip())
+        else:
+            commit_status = "unavailable"
+
+        out2, code2 = git("log", "--reverse", "--format=%ad", "--date=short", cwd=root)
+        if code2 == 0 and out2.strip():
+            lines2 = out2.strip().splitlines()
+            commit_first_date = lines2[0].strip() if lines2 else None
+            commit_last_date = lines2[-1].strip() if lines2 else None
+    except Exception as exc:
+        commit_status = f"unavailable ({exc})"
+
+    commits = {
+        "count": commit_count,
+        "first_date": commit_first_date,
+        "last_date": commit_last_date,
+        "status": commit_status,
+    }
+
+    # Existing docs
+    _MAX_DOCS = 20
+    doc_files = []
+    try:
+        # README files at root
+        for f in sorted(root.glob("README*")):
+            if f.is_file():
+                doc_files.append(str(f.relative_to(root)))
+        # docs/ files
+        if docs_exists:
+            for f in sorted(docs_path.rglob("*")):
+                if f.is_file() and len(doc_files) < _MAX_DOCS:
+                    doc_files.append(str(f.relative_to(root)))
+        # ADR dir (if not already under docs/)
+        if adr_dir and not adr_dir.startswith("docs"):
+            for f in sorted((root / adr_dir).rglob("*")):
+                if f.is_file() and len(doc_files) < _MAX_DOCS:
+                    doc_files.append(str(f.relative_to(root)))
+        # Instruction files
+        for fname in instruction_files:
+            entry = fname
+            if entry not in doc_files:
+                doc_files.append(entry)
+    except Exception:
+        pass
+    doc_files = doc_files[:_MAX_DOCS]
+
+    existing_docs = {
+        "files": doc_files,
+        "capped_at": _MAX_DOCS,
+    }
+
+    # Code: top-level source dirs
+    _EXCLUDE_DIRS = {".git", "repo-wiki", "node_modules", ".tick"}
+    code_dirs = []
+    try:
+        for item in sorted(root.iterdir()):
+            if not item.is_dir():
+                continue
+            name = item.name
+            if name.startswith(".") or name in _EXCLUDE_DIRS:
+                continue
+            # Count files (not dirs) directly under this top-level dir (rough)
+            try:
+                file_count = sum(1 for f in item.rglob("*") if f.is_file())
+            except Exception:
+                file_count = -1
+            code_dirs.append({"dir": name, "file_count": file_count})
+    except Exception:
+        pass
+
+    code = {
+        "top_level_dirs": code_dirs,
+    }
+
+    # ── Assemble result ──────────────────────────────────────────────────────
+    result = {
+        "signals": signals,
+        "sources": {
+            "chats": chats,
+            "commits": commits,
+            "existing_docs": existing_docs,
+            "code": code,
+        },
+    }
+
+    # ── Output ───────────────────────────────────────────────────────────────
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    # Human-readable report
+    print("=" * 64)
+    print("repo-wiki bootstrap report")
+    print("=" * 64)
+
+    print("\n── STRUCTURE SIGNALS ──────────────────────────────────────")
+    print(f"  ADR directory:      {adr_dir or '(none found)'}")
+    docs_label = f"yes ({docs_md_count} .md file(s))" if docs_exists else "no"
+    print(f"  docs/ present:      {docs_label}")
+    if ops_indicators:
+        print(f"  ops indicators:     {', '.join(ops_indicators)}")
+        print(f"  → suggest operations/ category in wiki structure")
+    else:
+        print(f"  ops indicators:     (none)")
+    print(f"  repo-wiki/ exists:  {'yes' if repo_wiki_exists else 'no'}")
+    if instruction_files:
+        print(f"  instruction files:  {', '.join(instruction_files)}")
+    else:
+        print(f"  instruction files:  (none)")
+
+    print("\n── SOURCE COUNTS ──────────────────────────────────────────")
+
+    # Chats
+    if chat_status == "ok":
+        date_range = ""
+        if chat_oldest and chat_newest and chat_oldest != chat_newest:
+            date_range = f" ({chat_oldest} → {chat_newest})"
+        elif chat_newest:
+            date_range = f" (newest: {chat_newest})"
+        print(f"  chats:              {chat_count} session(s){date_range}")
+    else:
+        print(f"  chats:              {chat_status}")
+
+    # Commits
+    if commit_status == "ok" and commit_count is not None:
+        date_range = ""
+        if commit_first_date and commit_last_date and commit_first_date != commit_last_date:
+            date_range = f" ({commit_first_date} → {commit_last_date})"
+        elif commit_last_date:
+            date_range = f" (latest: {commit_last_date})"
+        print(f"  commits:            {commit_count}{date_range}")
+    else:
+        print(f"  commits:            {commit_status}")
+
+    # Existing docs
+    if doc_files:
+        print(f"  existing docs ({len(doc_files)}):")
+        for f in doc_files:
+            print(f"    • {f}")
+        if len(doc_files) == _MAX_DOCS:
+            print(f"    (capped at {_MAX_DOCS})")
+    else:
+        print(f"  existing docs:      (none found)")
+
+    # Code dirs
+    if code_dirs:
+        print(f"  code dirs (candidate subsystems):")
+        for d in code_dirs:
+            fc = d["file_count"]
+            fc_label = f"{fc} file(s)" if fc >= 0 else "?"
+            print(f"    • {d['dir']}/ — {fc_label}")
+    else:
+        print(f"  code dirs:          (none found)")
+
+    print("\n" + "=" * 64)
+    print("READ-ONLY: no files were created or modified.")
+    print("Next: `kb.py init` to scaffold repo-wiki/ (after Gate 1).")
+    print("=" * 64)
+
+    return 0
+
+
 def cmd_comments(args):
     wiki = _resolve_wiki_for_comments(args)
     comments_dir = wiki / ".comments"
@@ -1708,6 +2004,14 @@ def main():
 
     sub.add_parser("init", help="scaffold the wiki + install the hook")
 
+    bp = sub.add_parser(
+        "bootstrap",
+        help="read-only enumeration report: structure signals + ingestion source counts",
+    )
+    bp.add_argument("--json", action="store_true", help="emit result as JSON")
+    bp.add_argument("--wiki", default=None, help="(unused, accepted for forward-compat)")
+
+
     sp = sub.add_parser("status", help="report stale pages (soft signal)")
     sp.add_argument("-v", "--verbose", action="store_true", help="also list unverified pages")
     sp.add_argument("--new", action="store_true",
@@ -1764,6 +2068,7 @@ def main():
     args = ap.parse_args()
     dispatch = {
         "init": cmd_init,
+        "bootstrap": cmd_bootstrap,
         "status": cmd_status,
         "outline": cmd_outline,
         "catchup": cmd_catchup,
