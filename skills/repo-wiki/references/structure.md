@@ -44,7 +44,20 @@ table below + the manual (page model, intake, propose-not-apply). Nested `INDEX.
 beyond the per-folder blurb are opt-in — add a curated reading order only for a large
 folder where it beats `ls`, and know you must keep it current.
 
-## The recommended categories
+## The recommended categories — a starting proposal, not a default
+
+The categories below are an **example starting proposal to put to the user** — they are
+not auto-applied and not a day-one checklist. The protocol is:
+
+1. **Propose** — present the recommended set (adapted to repo signals from `kb bootstrap`)
+   as a concrete example. State explicitly that it is a proposal.
+2. **Agree** — get explicit user confirmation; incorporate any renames, additions, or
+   removals. Never scaffold before agreement.
+3. **Scaffold** — run `kb scaffold --recommended` (if accepted as-is) or
+   `kb scaffold --only <agreed-list>` / `--add <extra>` (if adjusted).
+
+The discipline (level-1 MECE, every category a folder, self-documenting INDEX) is
+**fixed**. The specific categories are guidance — the user owns the final set.
 
 ```
 repo-wiki/
@@ -54,7 +67,7 @@ repo-wiki/
   constraints/     # RULES     — invariants, NFRs, gotchas (what must stay true)
   decisions/       # RATIONALE — choices + rejected paths (NNNN-slug.md)
 
-  # ── optional: add a slot only when needed ──
+  # ── optional: add a slot only when there is a signal for it ──
   operations/      # OPERATION — deploy/run/monitor/runbooks/incidents (services, not libs)
   roadmap/         # DIRECTION — where it's heading + in-flight work (now.md)
   conventions/     # PROCESS   — how we develop (only what's NOT in linters / the shim)
@@ -66,6 +79,11 @@ repo-wiki/
 Top five are near-universal; the bottom three are common-but-not-universal (a library
 has no `operations/`). The structure is a **destination map, not a day-one checklist** —
 a new wiki is `INDEX.md` + a few real pages, never a tree of empty folders.
+
+**Propose, don't impose.** Present the recommended set adapted to the repo's signals
+(ops indicators, existing ADR dirs, etc.) and ask: "Does this structure work? You can
+rename, add, or remove categories — the only constraint is that the final set stays
+MECE." Record any deviations in the root `INDEX.md` resolver.
 
 ## The resolver — "what is the primary subject?"
 
@@ -102,12 +120,18 @@ a new wiki is `INDEX.md` + a few real pages, never a tree of empty folders.
 - "Mid-migration REST→gRPC; new endpoints gRPC-only" → `roadmap/now.md`
 - "Trunk-based dev, squash-merge" → `conventions/`
 
-## Bootstrap Gate 1 — recording the agreed structure
+## Gate 1 — recording the agreed structure
 
-When cold-starting a wiki via `kb bootstrap`, Gate 1 produces an agreed category set
-(see `references/bootstrap.md`). That agreement is **recorded in the root `INDEX.md`
+Gate 1 applies to **any repo, new or existing**: structure is always agreed before it
+is scaffolded. The recommended categories above are the starting proposal; the user
+confirms or adjusts them. Once agreed, the decision is **recorded in the root `INDEX.md`
 resolver** — the category table and disambiguation rules are updated to reflect the
 actual chosen structure before any mining begins. Whatever structure is agreed **must
 remain MECE**: exactly one home per fact, no overlaps, no gaps. This is enforced at
 Gate 1, not after-the-fact — agreeing a MECE structure upfront is what makes every
 subsequent page-routing decision unambiguous.
+
+`kb init` does **not** scaffold structure — it installs plumbing only (hooks +
+gitignore + `.ingest/`). Structure is always created via `kb scaffold` after Gate 1
+agreement. See `references/bootstrap.md` for the full scan → propose → agree →
+scaffold flow.

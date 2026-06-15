@@ -31,7 +31,8 @@ quick yes/no.
 
 ## When to use this skill
 
-- **Setting up** a knowledge base for a repo → run `init` (below).
+- **Setting up** a knowledge base for a repo → run `kb bootstrap`, then follow the
+  scan → propose → agree → scaffold flow (see below and `references/bootstrap.md`).
 - **Capturing knowledge** during/after a session — a decision settled, a constraint
   learned, a gotcha hit. This is the highest-value, most frequent action.
 - **Checking freshness** — which pages drifted from the code (`kb status`).
@@ -60,55 +61,51 @@ Three composable commands cover setup; pick the one that fits:
 
 | Command | What it does | When to use |
 |---|---|---|
-| `kb init` | Scaffold default structure **+** install all hooks | New/empty repo — one-shot |
-| `kb plumbing` | Install hooks + gitignore only — **no dirs** | Any time; order-independent |
-| `kb scaffold` | Create dirs + INDEX files only — **no hooks** | After Gate 1 (bootstrap flow) |
+| `kb init` | Install all hooks + plumbing only — **no dirs or INDEX files** | Any time; order-independent |
+| `kb plumbing` | Install hooks + gitignore only — **no dirs** | Any time; order-independent (same as init) |
+| `kb scaffold` | Create dirs + INDEX files only — **no hooks**; requires an explicit agreed-set flag | After Gate 1 (always — new or existing repo) |
 
-### `init` — new-repo one-shot
+> **The wiki structure is NEVER created automatically.** It must be agreed with the user
+> first (via the scan → propose → agree → scaffold flow). `kb init` and `kb plumbing`
+> are plumbing-only; `kb scaffold` (with `--recommended`, `--only`, or `--add`) is what
+> creates the structure, and only after agreement.
 
-```bash
-python3 scripts/kb.py init        # run from the repo root
-```
-
-Creates `repo-wiki/` with a root `INDEX.md` (the resolver + manual) and the
-recommended category folders, installs all hooks into `.claude/settings.json` and
-`.git/hooks/post-commit`, and gitignores the local ingest watermark.
-**Use this for a brand-new/empty repo only.** Do not run bare `kb init` when
-bootstrapping an existing repo — it scaffolds the default structure before Gate 1
-where the right structure is agreed (use `kb scaffold` + `kb plumbing` instead).
-
-### `plumbing` — hooks only
+### `init` / `plumbing` — hooks only
 
 ```bash
-python3 scripts/kb.py plumbing    # order-independent; run any time
+python3 scripts/kb.py init        # or: python3 scripts/kb.py plumbing (same effect)
 ```
 
 Installs all hooks (`SessionStart`, `UserPromptSubmit/comments`, `PreCompact`,
 `SessionEnd`, `post-commit`) and gitignore entries. Creates `repo-wiki/.ingest/`.
-No dirs or INDEX files are created. Idempotent. Run before or after `kb scaffold`.
+**No dirs or INDEX files are created.** Idempotent. Run any time — before or after
+`kb scaffold`, before or after Gate 1.
 
-### `scaffold` — structure only
+### `scaffold` — structure only (requires agreed set)
 
 ```bash
-python3 scripts/kb.py scaffold                       # default 5 core categories
-python3 scripts/kb.py scaffold --add operations      # add extra category
-python3 scripts/kb.py scaffold --only product,decisions --add operations  # custom set
+python3 scripts/kb.py scaffold                                          # prints proposal + agree-first reminder; creates NOTHING
+python3 scripts/kb.py scaffold --recommended                            # scaffold recommended CATEGORIES (user accepted default set)
+python3 scripts/kb.py scaffold --recommended --add operations           # default set + extra
+python3 scripts/kb.py scaffold --only product,decisions --add operations  # agreed custom set
 ```
 
 Creates `repo-wiki/` + the agreed category folders + INDEX files. No hooks installed.
-`--only <comma-list>` restricts the core set; `--add <name>` appends extra categories.
-Idempotent: never clobbers existing INDEX files. Use after Gate 1 agreement during
-the bootstrap flow to scaffold exactly the agreed-upon structure.
+`--recommended` scaffolds the recommended CATEGORIES when the user accepted the default
+set as-is. `--only <comma-list>` restricts the core set; `--add <name>` appends extra
+categories (can be combined with either `--recommended` or `--only`). Idempotent: never
+clobbers existing INDEX files. **With no flags: creates nothing** — prints the recommended
+proposal + agree-first reminder instead (exit 0).
 
-Then read `references/structure.md` and seed the obvious pages (product, a couple of
-constraints, any decisions you already know). A new wiki is small — `INDEX.md` plus a
-few real pages — not a tree of empty folders.
+Use after Gate 1 agreement during the bootstrap flow to scaffold exactly the agreed
+structure. Then read `references/structure.md` and seed the obvious pages. A new wiki
+is small — `INDEX.md` plus a few real pages — not a tree of empty folders.
 
-## Bootstrapping an existing repo
+## Bootstrapping — the universal flow (new or existing repo)
 
-**`bootstrap` seeds the *content*** — it is the guided cold-start for a repo that
-already has history (commits, chats, docs) worth mining. Drop the skill into any repo
-with history and run:
+**Structure must always be agreed before it is scaffolded** — for every repo, new or
+existing. The bootstrap flow is the entry point for creating a wiki. Run the read-only
+scan first:
 
 ```bash
 python3 scripts/kb.py bootstrap   # read-only signal report; nothing is written
@@ -118,11 +115,12 @@ Then follow `references/bootstrap.md` for the full interactive protocol. The flo
 **multi-turn and cannot be compressed into a single command** — it requires two human
 gates:
 
-- **Gate 1 — Agree the MECE structure.** Present a proposed category set adapted to the
-  repo's signals (ops indicators, ADR directory, etc.). The user confirms or adjusts.
-  Agreement is recorded in the root `INDEX.md` resolver.  Only after Gate 1: run
-  `kb scaffold [--only ...] [--add ...]` to create exactly the agreed folders.
-  No mining begins until Gate 1 closes.
+- **Gate 1 — Agree the MECE structure.** Present the recommended category set as an
+  **example proposal** adapted to the repo's signals (ops indicators, ADR directory, etc.).
+  State explicitly that it is a proposal; let the user rename, add, or remove categories.
+  Agreement is recorded in the root `INDEX.md` resolver. Only after Gate 1: run
+  `kb scaffold --recommended` (if accepted as-is) or `kb scaffold --only/--add` (if
+  adjusted) to create exactly the agreed folders. No mining begins until Gate 1 closes.
 - **Gate 2 — Agree the ingestion scope.** For each source (chats, commits, docs, code),
   show counts and estimated effort. The user picks which sources to mine and how far back.
   Mining begins only after Gate 2 closes.
@@ -132,19 +130,20 @@ so a large repo's cold-start is fast and non-blocking. Every generated page is a
 **proposal only**; nothing is written to disk without explicit human approval
 (propose-not-apply invariant applies end-to-end).
 
-> **`kb plumbing` is order-independent.** Run it at any time during the bootstrap flow
-> (even before Gate 1) to wire all hooks. It is fully decoupled from structure.
-> `kb scaffold` is what follows Gate 1 — not `kb init`.
+> **`kb init` / `kb plumbing` are order-independent.** Run either at any time during the
+> bootstrap flow (even before Gate 1) to wire all hooks. Neither creates structure.
+> `kb scaffold` (with `--recommended`, `--only`, or `--add`) is what follows Gate 1.
 
 **Command comparison:**
 
 | | `kb init` | `kb plumbing` | `kb scaffold` | `kb bootstrap` |
 |---|---|---|---|---|
-| What | Default structure + all hooks | Hooks only | Dirs + INDEX only | Read-only signal report |
+| What | Hooks + plumbing only | Hooks + plumbing only | Dirs + INDEX only | Read-only signal report |
+| Creates structure? | **No** | **No** | Yes — after Gate 1 agreement | No |
 | Gates | None | None | None | Leads into two interactive gates |
 | Mining | None | None | None | Parallel subagents (after gates) |
-| Output | Folder tree + hooks | Hooks + gitignore | Folder tree | Proposed wiki pages |
-| When | **New/empty repo only** | Any time (bootstrap or later) | After Gate 1 | Existing repo with history |
+| Output | Hooks + gitignore | Hooks + gitignore | Agreed folder tree | Proposed wiki pages |
+| When | Any time (plumbing-only) | Any time (plumbing-only) | After Gate 1 | Any repo with history to mine |
 
 ## Structure (recommended, not prescribed)
 
@@ -305,9 +304,9 @@ summary and spawns a detached `kb.py reconcile` to refresh it). See
 
 ## Activation — wired triggers
 
-Maintenance is an **install problem, not a willpower problem**. `kb init` (new-repo
-one-shot) or `kb plumbing` (standalone, order-independent) installs four committed
-Claude hooks and one git hook. After that, maintenance is automatic:
+Maintenance is an **install problem, not a willpower problem**. `kb init` or
+`kb plumbing` (both plumbing-only, order-independent) installs four committed Claude
+hooks and one git hook. After that, maintenance is automatic:
 
 | Hook | Type | Fires | Effect |
 |---|---|---|---|
@@ -348,7 +347,7 @@ all subsequent sessions.
 **Summary: "one approval then automatic"** is the target. Fully zero-touch is not
 achievable (git-hook inheritance + trust prompt are hard constraints). If you want the
 git hook before the first Claude session, run `python3 skills/repo-wiki/scripts/kb.py
-init` once after cloning — it is idempotent and safe to run multiple times.
+plumbing` (or `init`) once after cloning — it installs plumbing only and is idempotent.
 
 ## CLAUDE.md / AGENTS.md → thin shim
 

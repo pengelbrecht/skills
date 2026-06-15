@@ -7,12 +7,14 @@ Git decides staleness; the model only ever writes/proposes content. Nothing here
 auto-applies edits to your knowledge base — these commands report and scaffold.
 
 Subcommands:
-  init           One-shot for a NEW/empty repo: scaffold repo-wiki/ (default structure)
-                 + install all hooks/plumbing. Safe to re-run (idempotent).
+  init           Install all hooks/plumbing ONLY — no dir/INDEX scaffolding.
+                 Structure must be agreed with the user first (see bootstrap flow).
+                 Safe to re-run (idempotent). Alias for `plumbing` with guidance output.
   plumbing       Install all hooks and gitignore entries only — no dir/INDEX scaffolding.
                  Order-independent: run any time, before or after `scaffold`.
   scaffold       Create repo-wiki/ dirs + INDEX files only — no hooks installed.
-                 Use after Gate 1 agreement (bootstrap flow). Flags: --add, --only.
+                 Requires an explicit flag (--recommended / --only / --add) reflecting
+                 the agreed structure. With NO flag: prints proposal + agree-first reminder.
   status         Report pages whose `covers` paths changed since `verified_against`
                  (soft signal — never a gate).
   catchup        Enumerate chat sessions since the watermark (via vendored recall) so
@@ -719,24 +721,22 @@ def scaffold_structure(root, categories=None, add=None, only=None):
 
 
 def cmd_init(args):
-    """One-shot for a new/empty repo: scaffold default structure + install plumbing."""
+    """Install all hooks and plumbing only — no dir/INDEX scaffolding.
+
+    `kb init` is now PLUMBING ONLY. The wiki structure is NEVER created
+    automatically — it must be agreed with the user first via the scan →
+    propose → agree → scaffold flow (see references/bootstrap.md).
+    """
     root = repo_root()
 
-    # Scaffold the default structure (idempotent — won't clobber existing INDEX files).
-    created = scaffold_structure(root)
-
-    # Install all hooks and plumbing (idempotent).
+    # Install all hooks and plumbing (idempotent). No scaffold_structure() call.
     hooks = install_plumbing(root)
 
     # detect instruction files
     shims = [f for f in ("CLAUDE.md", "AGENTS.md", "GEMINI.md") if (root / f).exists()]
 
-    print("repo-wiki initialized (scaffold + plumbing).\n")
-    if created:
-        print("created:")
-        for c in created:
-            print(f"  + {c}")
-    print(f"\nSessionStart hook:      {'installed in .claude/settings.json' if hooks['session_start'] else 'already present / skipped'}")
+    print("repo-wiki plumbing installed.\n")
+    print(f"SessionStart hook:      {'installed in .claude/settings.json' if hooks['session_start'] else 'already present / skipped'}")
     print(f"Comments hook:          {'installed (UserPromptSubmit)' if hooks['comments'] else 'already present / skipped'}")
     print(f"PreCompact hook:        {'installed (PreCompact)' if hooks['precompact'] else 'already present / skipped'}")
     print(f"SessionEnd hook:        {'installed (SessionEnd)' if hooks['session_end'] else 'already present / skipped'}")
@@ -745,14 +745,23 @@ def cmd_init(args):
     print("  get the hook re-installed automatically via the SessionStart self-heal.")
     print("ingest watermark:       repo-wiki/.ingest/ (gitignored)")
     print("comments store:         repo-wiki/.comments/ (gitignored)")
-    print("\nComments: highlight text in the web viewer (kb serve) to post inline")
-    print("feedback. Open comments are injected into every agent turn via the hook.")
+    print()
+    print("The wiki structure is NOT created automatically — it must be agreed")
+    print("with you first. Next steps:")
+    print()
+    print("  1. Run `kb bootstrap` to scan the repo and gather structure signals.")
+    print("  2. Propose a MECE structure (the recommended categories are a starting")
+    print("     example, adapted to the repo's signals).")
+    print("  3. Agree the structure with the user.")
+    print("  4. Run `kb scaffold --recommended` (if they accepted the recommended set)")
+    print("     or `kb scaffold --only <cats>` / `--add <cats>` (for an agreed custom set).")
+    print()
+    print("See references/bootstrap.md for the full flow.")
     if shims:
-        print(f"\nFound {', '.join(shims)} — consider migrating its *knowledge* into the wiki")
-        print("and leaving a thin shim (see references/claude-md-shim.md +")
-        print("assets/templates/shim.md). This is propose-only; review the diff.")
-    print("\nNext: read references/structure.md, then seed product/, a couple of")
-    print("constraints/, and any decisions you already know. Keep it small and real.")
+        print(f"\nFound {', '.join(shims)} — after the wiki is scaffolded, consider migrating")
+        print("its *knowledge* into the wiki and leaving a thin shim")
+        print("(see references/claude-md-shim.md + assets/templates/shim.md).")
+        print("This is propose-only; review the diff.")
     return 0
 
 
@@ -779,10 +788,18 @@ def cmd_plumbing(args):
 def cmd_scaffold(args):
     """Create repo-wiki/ dirs + INDEX files only — no hooks installed.
 
-    Use after Gate 1 agreement during the bootstrap flow.  Pass --add and/or --only
-    to reflect the agreed-upon structure.  Idempotent: never clobbers existing INDEX files.
+    Use after agreeing the structure with the user (via the bootstrap flow).
+    Structure is NEVER created blindly — an explicit flag is required:
+
+      --recommended   scaffold the recommended CATEGORIES (the user accepted the default set)
+      --only <cats>   scaffold exactly these categories (comma-separated)
+      --add <cats>    add extra categories on top of the core set (or --recommended)
+
+    With NO flag: prints the recommended proposal + agree-first reminder; creates nothing.
     """
     root = repo_root()
+
+    recommended = getattr(args, "recommended", False)
 
     # Parse --add: comma-list or multiple flag invocations → flat list of names
     add = []
@@ -794,6 +811,28 @@ def cmd_scaffold(args):
     only = None
     if args.only:
         only = [n.strip() for n in args.only.split(",") if n.strip()]
+
+    # GATING: if no mode flag was given, print the proposal and exit without creating anything.
+    if not recommended and only is None and not add:
+        print("repo-wiki scaffold — no structure agreed yet.\n")
+        print("The wiki structure must be agreed with you before anything is created.")
+        print("Recommended MECE categories (starting proposal — adapt to this repo):\n")
+        for name, purpose in CATEGORIES:
+            print(f"  {name}/   — {purpose}")
+        print("  inbox/   — raw captures awaiting triage")
+        print("  archive/ — superseded pages (retired, not deleted)")
+        print()
+        print("Optional additions (add only when there is a signal for them):")
+        print("  operations/  — deploy, run, monitor, runbooks (services, not libs)")
+        print("  roadmap/     — where the project is heading; in-flight work")
+        print("  conventions/ — how we develop (only what is NOT in linters)")
+        print()
+        print("Run `kb bootstrap` first to scan repo signals, then agree a structure,")
+        print("then re-run scaffold with one of:")
+        print("  kb scaffold --recommended                          # accepted the default set")
+        print("  kb scaffold --only product,decisions               # custom subset")
+        print("  kb scaffold --only product,decisions --add roadmap # subset + extra")
+        return 0
 
     created = scaffold_structure(root, add=add if add else None, only=only)
 
@@ -2013,9 +2052,9 @@ def cmd_bootstrap(args):
     print("READ-ONLY: no files were created or modified.")
     print("Next: follow references/bootstrap.md.")
     print("  kb.py plumbing   — install hooks any time (order-independent)")
-    print("  kb.py scaffold   — scaffold the AGREED structure after Gate 1")
-    print("  (do NOT run bare `kb.py init` on an existing repo — it scaffolds")
-    print("   the default structure before Gate 1 agreement)")
+    print("  kb.py init       — alias for plumbing (installs hooks only, no structure)")
+    print("  kb.py scaffold --recommended|--only <cats>|--add <cats>")
+    print("                   — scaffold the AGREED structure after Gate 1")
     print("=" * 64)
 
     return 0
@@ -2111,13 +2150,19 @@ def main():
     ap = argparse.ArgumentParser(prog="kb.py", description="repo-wiki command line")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("init", help="new-repo one-shot: scaffold default structure + install all hooks (idempotent)")
+    sub.add_parser("init", help="install all hooks + plumbing only — no dir/INDEX scaffolding; structure must be agreed first (idempotent)")
 
     sub.add_parser("plumbing", help="install all hooks + gitignore entries only — no dir/INDEX scaffolding (idempotent)")
 
     scp = sub.add_parser(
         "scaffold",
-        help="create repo-wiki/ dirs + INDEX files only — no hooks installed; use after Gate 1 agreement",
+        help="create repo-wiki/ dirs + INDEX files only — no hooks installed; requires --recommended/--only/--add (agreed structure)",
+    )
+    scp.add_argument(
+        "--recommended",
+        action="store_true",
+        default=False,
+        help="scaffold the recommended CATEGORIES (use when user agreed to the recommended set as-is)",
     )
     scp.add_argument(
         "--add",

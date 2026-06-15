@@ -1,14 +1,16 @@
-# Bootstrap — interactive cold-start protocol
+# Bootstrap — interactive wiki creation protocol
 
-Bootstrap = the guided procedure that **seeds content** in an existing repo. It is
-distinct from `kb init`, which is for **new/empty repos only** (see note below).
-Bootstrap drives two human gates before any mining runs, proposes but never applies
-changes, and fans mining work out to parallel subagents so the cold-start is fast.
+Bootstrap = the universal guided procedure for **creating a wiki structure and seeding
+content**. It applies to **every repo — new or existing** — because the wiki structure
+must always be agreed with the user before anything is scaffolded. Bootstrap drives two
+human gates before any mining runs, proposes but never applies changes, and fans mining
+work out to parallel subagents so a cold-start on an existing repo is fast.
 
-> **Do not run bare `kb init` when bootstrapping an existing repo.** `kb init` scaffolds
-> the *default* structure immediately, before Gate 1 where the right structure is agreed.
-> Use `kb scaffold` after Gate 1 and `kb plumbing` at any time instead (see Step 0.5).
-> `kb init` is only for a brand-new/empty repo with no history.
+> **`kb init` does NOT scaffold wiki structure.** It installs plumbing only (hooks +
+> gitignore + `.ingest/`). The wiki structure is NEVER created automatically — it must
+> be agreed with the user first via this flow (scan → propose → agree → scaffold).
+> `kb init` and `kb plumbing` are both plumbing-only; `kb scaffold` (after Gate 1) is
+> what creates the structure.
 
 Three invariants that apply end-to-end:
 
@@ -54,16 +56,18 @@ Load this output into context before presenting Gate 1.
 
 ## Step 0.5 — Install plumbing (order-independent)
 
-Run `kb plumbing` any time — before or after Gate 1, before or after `kb scaffold`.
-It installs all hooks (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `SessionEnd`,
-`post-commit`) and gitignores the local ingest dirs.  No dirs or INDEX files are created.
+Run `kb plumbing` (or equivalently `kb init`) any time — before or after Gate 1,
+before or after `kb scaffold`. It installs all hooks (`SessionStart`,
+`UserPromptSubmit`, `PreCompact`, `SessionEnd`, `post-commit`) and gitignores the
+local ingest dirs. No dirs or INDEX files are created.
 
 ```bash
-python3 scripts/kb.py plumbing
+python3 scripts/kb.py plumbing   # or: python3 scripts/kb.py init  (same effect)
 ```
 
-This is idempotent and safe to run immediately.  The hooks work even before any wiki
-structure exists — plumbing is fully independent of structure.
+This is idempotent and safe to run immediately. The hooks work even before any wiki
+structure exists — plumbing is fully independent of structure. Do not expect
+`kb init` to create `repo-wiki/` folders or INDEX files; it never does.
 
 ---
 
@@ -127,16 +131,17 @@ subagents will use in Step 3.
 ### Then scaffold the agreed structure
 
 Only after Gate 1 agreement is recorded: run `kb scaffold` with the agreed category
-set, using `--only` and/or `--add` to reflect any edits from the default set.
+set. An explicit flag is required — `kb scaffold` with no flags creates nothing (it
+prints the recommended proposal + agree-first reminder instead).
 
 ```bash
-# Core example: default 5 categories (product/glossary/architecture/constraints/decisions)
-python3 scripts/kb.py scaffold
+# User accepted the recommended set as-is:
+python3 scripts/kb.py scaffold --recommended
 
-# With an extra category (e.g. operations suggested by bootstrap signals):
-python3 scripts/kb.py scaffold --add operations
+# User accepted recommended set + wants operations (e.g. ops indicators found):
+python3 scripts/kb.py scaffold --recommended --add operations
 
-# Restrict to agreed subset + add custom:
+# User agreed a custom subset + extra:
 python3 scripts/kb.py scaffold --only product,decisions,architecture --add operations
 ```
 
