@@ -346,8 +346,12 @@ all subsequent sessions.
 
 **Summary: "one approval then automatic"** is the target. Fully zero-touch is not
 achievable (git-hook inheritance + trust prompt are hard constraints). If you want the
-git hook before the first Claude session, run `python3 skills/repo-wiki/scripts/kb.py
-plumbing` (or `init`) once after cloning — it installs plumbing only and is idempotent.
+git hook before the first Claude session, run `kb plumbing` (or `init`) once after
+cloning — i.e. `python3 <path-to-skill>/scripts/kb.py plumbing` (commonly
+`.claude/skills/repo-wiki/scripts/kb.py`). It installs plumbing only and is idempotent.
+The hook paths it writes are derived from the skill's actual install location, so they
+work regardless of where the skill lives; re-running `plumbing` also repairs a hook whose
+path went stale.
 
 ## CLAUDE.md / AGENTS.md → thin shim
 

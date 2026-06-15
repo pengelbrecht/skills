@@ -74,7 +74,13 @@ make the user wait. So the startup path is split:
 So freshness is always *one session stale* in the worst case — a deliberate trade to keep
 startup instant. Run `kb.py status` anytime for a live scan. The hook also **shim-lints**
 (nudges a CLAUDE.md/AGENTS.md migration if knowledge re-accreted). See
-`assets/templates/sessionstart-hook.json` for the snippet `init` installs.
+`assets/templates/sessionstart-hook.json` for an illustrative snippet — but note `init`
+**generates** the hook command from the skill's actual install location (deriving the
+kb.py path the same way `install_post_commit_hook` does), so it works whether the skill
+lives at `<root>/skills/repo-wiki`, `.claude/skills/repo-wiki`, `.agents/skills/repo-wiki`,
+or elsewhere. Do not hand-copy a fixed path; run `kb plumbing`. Re-running `plumbing`
+repairs a hook whose embedded path has gone stale (e.g. after the skill moved), and
+`session-start`/`post-commit` self-heal a stale settings.json path when they run.
 
 ## The self-heal bootstrap
 

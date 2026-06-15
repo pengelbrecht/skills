@@ -1,5 +1,6 @@
 {
   "//": "Snippet merged into .claude/settings.json by `kb.py init`. The SessionStart hook is the heartbeat: it injects the wiki, reports drift, and reconciles missed chats. Output on stdout is added to the session context.",
+  "//path": "Prefer `kb.py init`/`plumbing` over copying this by hand — it derives the kb.py path from wherever the skill is actually installed and writes it for you. The path below is illustrative: it must point at THIS skill's scripts/kb.py. If the skill lives under .claude/skills/ (the common layout), the path is \"$CLAUDE_PROJECT_DIR/.claude/skills/repo-wiki/scripts/kb.py\".",
   "hooks": {
     "SessionStart": [
       {
