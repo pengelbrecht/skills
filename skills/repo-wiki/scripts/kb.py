@@ -15,6 +15,8 @@ Subcommands:
                  they can be triaged into the wiki.
   watermark      Show / advance the local ingest watermark.
   session-start  Compact heartbeat block for the SessionStart hook (best-effort).
+  precompact     PreCompact hook: print directive to mine context before compaction.
+  session-end    SessionEnd hook: nudge to run catchup before session is gone.
   serve          Boot a local HTTP server (127.0.0.1) with /api/tree and the web UI.
 """
 import argparse
@@ -257,6 +259,39 @@ def cmd_outline(args):
     return 0
 
 
+def cmd_precompact(args):
+    """PreCompact hook: print a directive to mine the current window before it's lost."""
+    wm_hint = ""
+    try:
+        root = repo_root()
+        wm = load_watermark(root)
+        sid = wm.get("chat_session_id") or "(none)"
+        wm_hint = f" Last extraction watermark: chat_session_id={sid}."
+    except Exception:
+        pass
+    print(
+        "[repo-wiki] Context is about to compact. Before it does:\n"
+        "  1. Run the chat-extraction prompt (repo-wiki/references/extraction.md, Prompt 1)\n"
+        "     over the recent conversation — only the window SINCE the last extraction\n"
+        f"     (avoid re-mining already-ingested turns).{wm_hint}\n"
+        "  2. Propose durable knowledge into repo-wiki/ (propose-only, no auto-apply).\n"
+        "  3. Advance the watermark once done:\n"
+        "       kb.py watermark --set-session <newest-session-id>\n"
+        "  This prevents double-extraction on repeated compactions."
+    )
+    return 0
+
+
+def cmd_session_end(args):
+    """SessionEnd hook: nudge to run catchup before the session is gone."""
+    print(
+        "[repo-wiki] Session ending — run `kb catchup` (or `python3 kb.py catchup`) so\n"
+        "this session's durable knowledge is mined before it's gone.\n"
+        "Propose-only: file insights into repo-wiki/, then advance the watermark."
+    )
+    return 0
+
+
 def cmd_catchup(args):
     root = repo_root()
     wm = load_watermark(root)
@@ -305,6 +340,19 @@ def cmd_session_start(args):
         wiki = root / "repo-wiki"
         if not wiki.exists():
             return 0
+
+        # ── self-heal: ensure non-inheritable artifacts exist ──────────────────
+        # .git/hooks/post-commit is not cloned; re-install if missing or not wired.
+        try:
+            install_post_commit_hook(root)  # idempotent — no-op if already present
+        except Exception:
+            pass
+        # .ingest/ must exist for cache/watermark writes.
+        try:
+            (wiki / ".ingest").mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
         n = sum(1 for _ in iter_pages(wiki))  # cheap: filesystem only, no git
         print("\n[repo-wiki] Knowledge base present. Read repo-wiki/INDEX.md first; "
               f"pull pages by relevance (covers/grep). {n} pages.")
@@ -322,6 +370,14 @@ def cmd_session_start(args):
                     mark_surfaced(surfaced, delta)
                     save_surfaced(root, surfaced)
                 # If nothing is newly stale, stay quiet about staleness.
+            # Surface un-ingested chat sessions count (cached by background reconcile).
+            uningested = cache.get("uningested_chat_sessions", 0)
+            try:
+                uningested = int(uningested)
+            except Exception:
+                uningested = 0
+            if uningested > 0:
+                print(f"[repo-wiki] {uningested} un-ingested chat session(s) — run `kb catchup`.")
         else:
             print("[repo-wiki] (freshness scan running in background; check `kb.py status`).")
         # Refresh the cache without blocking this session.
@@ -386,6 +442,43 @@ def cmd_post_commit(args):
     return 0
 
 
+def count_uningested_chat_sessions(root, days=30):
+    """Use vendored recall to count sessions newer than the chat watermark.
+
+    Returns an int (0 if recall unavailable, watermark absent, or any error).
+    Best-effort: never raises.
+    """
+    try:
+        if not RECALL.exists():
+            return 0
+        wm = load_watermark(root)
+        watermark_sid = wm.get("chat_session_id") or ""
+        proc = subprocess.run(
+            [sys.executable, str(RECALL), "--project", str(root),
+             "--days", str(days), "--json"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if proc.returncode != 0:
+            return 0
+        sessions = json.loads(proc.stdout)
+        if not isinstance(sessions, list):
+            return 0
+        if not watermark_sid:
+            return len(sessions)
+        # Count sessions whose id (or path) comes after the watermark.
+        # Recall returns sessions newest-first; we want those not yet ingested.
+        # Strategy: count sessions that appear before (newer than) the watermark id.
+        count = 0
+        for s in sessions:
+            sid = s.get("id") or s.get("session_id") or ""
+            if sid == watermark_sid:
+                break
+            count += 1
+        return count
+    except Exception:
+        return 0
+
+
 def cmd_reconcile(args):
     """Heavy scan — meant to run detached / in the background. Computes git staleness over
     every page and writes the cache the fast `session-start` reads. Safe to run anytime."""
@@ -394,10 +487,13 @@ def cmd_reconcile(args):
     if not wiki.exists():
         return 0
     st = compute_status(root, wiki, load_pages(wiki))
+    # Also count un-ingested chat sessions so session-start can surface it cheaply.
+    st["uningested_chat_sessions"] = count_uningested_chat_sessions(root)
     st["ts"] = datetime.now(timezone.utc).isoformat()
     save_status_cache(root, st)
     if args.verbose:
-        print(f"reconciled: {len(st['stale'])} stale, {st['fresh']} fresh")
+        print(f"reconciled: {len(st['stale'])} stale, {st['fresh']} fresh, "
+              f"{st['uningested_chat_sessions']} un-ingested chat session(s)")
     return 0
 
 
@@ -526,6 +622,12 @@ def cmd_init(args):
     # UserPromptSubmit hook (comments)
     comments_installed = install_comments_hook(root)
 
+    # PreCompact hook
+    precompact_installed = install_precompact_hook(root)
+
+    # SessionEnd hook
+    session_end_installed = install_session_end_hook(root)
+
     # post-commit git hook
     post_commit_installed = install_post_commit_hook(root)
 
@@ -539,9 +641,11 @@ def cmd_init(args):
             print(f"  + {c}")
     print(f"\nSessionStart hook:      {'installed in .claude/settings.json' if installed else 'already present / skipped'}")
     print(f"Comments hook:          {'installed (UserPromptSubmit)' if comments_installed else 'already present / skipped'}")
+    print(f"PreCompact hook:        {'installed (PreCompact)' if precompact_installed else 'already present / skipped'}")
+    print(f"SessionEnd hook:        {'installed (SessionEnd)' if session_end_installed else 'already present / skipped'}")
     print(f"post-commit git hook:   {'installed in .git/hooks/post-commit' if post_commit_installed else 'already present / skipped'}")
     print("  Note: .git/hooks/ is local-only — not shared by clone. Collaborators")
-    print("  get the hook via `kb.py init` or the SessionStart self-heal (upcoming).")
+    print("  get the hook re-installed automatically via the SessionStart self-heal.")
     print("ingest watermark:       repo-wiki/.ingest/ (gitignored)")
     print("comments store:         repo-wiki/.comments/ (gitignored)")
     print("\nComments: highlight text in the web viewer (kb serve) to post inline")
@@ -658,6 +762,62 @@ def install_post_commit_hook(root):
 
     # Ensure executable
     hook_file.chmod(hook_file.stat().st_mode | 0o111)
+    return True
+
+
+def install_precompact_hook(root):
+    """Install the PreCompact hook that calls kb.py precompact.
+
+    Idempotent: checks for an existing kb.py precompact entry before adding.
+    Does not touch other hooks.
+    """
+    settings = root / ".claude" / "settings.json"
+    settings.parent.mkdir(exist_ok=True)
+    data = {}
+    if settings.exists():
+        try:
+            data = json.loads(settings.read_text())
+        except Exception:
+            data = {}
+    hooks = data.setdefault("hooks", {})
+    pc = hooks.setdefault("PreCompact", [])
+    blob = json.dumps(pc)
+    if "repo-wiki/scripts/kb.py" in blob and "precompact" in blob:
+        return False
+    cmd = 'python3 "$CLAUDE_PROJECT_DIR/skills/repo-wiki/scripts/kb.py" precompact 2>/dev/null || true'
+    pc.append({
+        "matcher": "",
+        "hooks": [{"type": "command", "command": cmd}],
+    })
+    settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
+def install_session_end_hook(root):
+    """Install the SessionEnd hook that calls kb.py session-end.
+
+    Idempotent: checks for an existing kb.py session-end entry before adding.
+    Does not touch other hooks.
+    """
+    settings = root / ".claude" / "settings.json"
+    settings.parent.mkdir(exist_ok=True)
+    data = {}
+    if settings.exists():
+        try:
+            data = json.loads(settings.read_text())
+        except Exception:
+            data = {}
+    hooks = data.setdefault("hooks", {})
+    se = hooks.setdefault("SessionEnd", [])
+    blob = json.dumps(se)
+    if "repo-wiki/scripts/kb.py" in blob and "session-end" in blob:
+        return False
+    cmd = 'python3 "$CLAUDE_PROJECT_DIR/skills/repo-wiki/scripts/kb.py" session-end 2>/dev/null || true'
+    se.append({
+        "matcher": "",
+        "hooks": [{"type": "command", "command": cmd}],
+    })
+    settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return True
 
 
@@ -1413,6 +1573,10 @@ def main():
 
     sub.add_parser("session-start", help="fast, non-blocking heartbeat for the SessionStart hook")
 
+    sub.add_parser("precompact", help="PreCompact hook: print extract-before-compaction directive")
+
+    sub.add_parser("session-end", help="SessionEnd hook: nudge to run catchup before session is gone")
+
     sub.add_parser("post-commit", help="git post-commit hook: nudge about drift this commit caused (soft, non-blocking)")
 
     rp = sub.add_parser("reconcile", help="heavy freshness scan → cache (run in background)")
@@ -1449,6 +1613,8 @@ def main():
         "catchup": cmd_catchup,
         "watermark": cmd_watermark,
         "session-start": cmd_session_start,
+        "precompact": cmd_precompact,
+        "session-end": cmd_session_end,
         "post-commit": cmd_post_commit,
         "reconcile": cmd_reconcile,
         "serve": cmd_serve,
