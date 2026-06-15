@@ -301,7 +301,8 @@ def cmd_catchup(args):
         sys.exit(f"vendored recall not found at {RECALL}")
     print(f"enumerating sessions for this project (last {args.days} days)…\n")
     proc = subprocess.run(
-        [sys.executable, str(RECALL), "--project", str(root), "--days", str(args.days)],
+        [sys.executable, str(RECALL), "--project", str(root), "--days", str(args.days),
+         "--limit", "2000"],
         capture_output=True, text=True,
     )
     sys.stdout.write(proc.stdout)
@@ -470,7 +471,8 @@ def count_uningested_chat_sessions(root, days=30):
         wm = load_watermark(root)
         watermark_sid = wm.get("chat_session_id") or ""
         proc = subprocess.run(
-            [sys.executable, str(RECALL), "--project", str(root), "--days", str(days)],
+            [sys.executable, str(RECALL), "--project", str(root), "--days", str(days),
+             "--limit", "2000"],
             capture_output=True, text=True, timeout=30,
         )
         if proc.returncode != 0:
@@ -1694,7 +1696,8 @@ def cmd_bootstrap(args):
         else:
             # Run recall and parse all real sessions (not subagent transcripts)
             proc = subprocess.run(
-                [sys.executable, str(RECALL), "--project", str(root), "--days", "365"],
+                [sys.executable, str(RECALL), "--project", str(root), "--days", "365",
+                 "--limit", "2000"],
                 capture_output=True, text=True, timeout=30,
             )
             if proc.returncode != 0:
