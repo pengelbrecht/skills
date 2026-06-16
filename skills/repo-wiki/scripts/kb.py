@@ -396,6 +396,11 @@ def cmd_session_start(args):
         n = sum(1 for _ in iter_pages(wiki))  # cheap: filesystem only, no git
         print("\n[repo-wiki] Knowledge base present. Read repo-wiki/INDEX.md first; "
               f"pull pages by relevance (covers/grep). {n} pages.")
+        # Write-back nudge: config-independent so it works even when no shim points
+        # here. Mirrors the shim's second half — the read pointer alone is asymmetric.
+        print("[repo-wiki] On a cache miss (knowledge not in the wiki): resolve it "
+              "(read code / ask / web-search), use it, then propose a page if it's "
+              "durable and non-obvious — see INDEX.md.")
         cache = load_status_cache(root)
         if cache:
             stale_list = cache.get("stale", [])
