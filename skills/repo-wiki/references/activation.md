@@ -9,7 +9,7 @@ triggers once, prefer committed/shared config, and make drift visible.
 
 | Trigger | Status | Fires | Drives |
 |---|---|---|---|
-| **SessionStart hook** (`.claude/settings.json`, committed) | **WIRED** | every session begins | heartbeat: inject wiki + `covers`-scoped pages, announce new-stale delta, self-heal git hook, spawn detached reconcile |
+| **SessionStart hook** (`.claude/settings.json`, committed) | **WIRED** | every session begins | heartbeat: inject wiki + `covers`-scoped pages, emit the read pointer **and** the cache-miss write-back directive (config-independent, so write-back never depends on a shim), announce new-stale delta, self-heal git hook, spawn detached reconcile |
 | **post-commit git hook** (`.git/hooks/post-commit`, self-healed) | **WIRED** | every git commit | diff-scoped nudge: lists pages whose `covers` paths overlap THIS commit's changes; exits 0 always |
 | **PreCompact hook** (`.claude/settings.json`, committed) | **WIRED** | before context compaction | prints an extract-before-compaction directive so the agent mines context from the about-to-be-lost window |
 | **SessionEnd hook** (`.claude/settings.json`, committed) | **WIRED** | session ends | catch-up nudge: reminds agent to run `kb catchup` before the session is gone |
