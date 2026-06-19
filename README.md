@@ -7,6 +7,7 @@ A collection of [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sk
 | Skill | Description |
 |-------|-------------|
 | [agent-screencast](skills/agent-screencast) | Record narrated, captioned screen recordings of web applications |
+| [bro](skills/bro) | Restate the last message in plain human language, with no jargon |
 | [clone-website](skills/clone-website) | Clone/replicate websites into production-ready Astro 6 code using agent-browser |
 | [gws-slides](skills/gws-slides) | Create polished, professional Google Slides presentations using the gws CLI |
 | [missions](skills/missions) | Break large engineering tasks into planned, validated missions executed by specialized agents |
