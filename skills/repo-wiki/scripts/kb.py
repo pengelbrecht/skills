@@ -396,11 +396,22 @@ def cmd_session_start(args):
         n = sum(1 for _ in iter_pages(wiki))  # cheap: filesystem only, no git
         print("\n[repo-wiki] Knowledge base present. Read repo-wiki/INDEX.md first; "
               f"pull pages by relevance (covers/grep). {n} pages.")
-        # Write-back nudge: config-independent so it works even when no shim points
-        # here. Mirrors the shim's second half — the read pointer alone is asymmetric.
-        print("[repo-wiki] On a cache miss (knowledge not in the wiki): resolve it "
-              "(read code / ask / web-search), use it, then propose a page if it's "
-              "durable and non-obvious — see INDEX.md.")
+        # Write-back nudge, reframed as a standing BEHAVIOR (not a one-shot fact):
+        # the proactive-capture counter (post-commit / turn-tick) is what keeps this
+        # alive mid-session; this line is the phrasing the agent reaches for when it
+        # fires. Config-independent so it works even when no shim points here.
+        print("[repo-wiki] After any turn that settles a decision, uncovers a "
+              "non-obvious fact, or changes how the system works, proactively OFFER a "
+              "one-line wiki capture — don't wait to be asked (propose-not-apply). "
+              "On a cache miss, resolve it (read code / ask / web-search) first.")
+        # Surface inherited knowledge-debt so a fresh session picks up the pressure.
+        try:
+            kd = load_knowledge_debt(root, load_watermark(root))
+            nudge = _debt_nudge(kd)
+            if nudge:
+                print(f"[repo-wiki] {nudge}")
+        except Exception:
+            pass
         cache = load_status_cache(root)
         if cache:
             stale_list = cache.get("stale", [])
@@ -427,6 +438,141 @@ def cmd_session_start(args):
             print("[repo-wiki] (freshness scan running in background; check `kb.py status`).")
         # Refresh the cache without blocking this session.
         spawn_background(["reconcile"], cwd=root)
+    except Exception:
+        pass
+    return 0
+
+
+# ── knowledge-debt: proactive-capture counter ─────────────────────────────────
+# Code drift is caught mechanically by `kb status` (git diff ∩ covers). Chat-borne
+# knowledge (decisions, gotchas, new subsystems) has no such signal — it relied on
+# the human remembering or on edge-of-session nudges the agent blows past. This
+# counter is the missing recurring signal: it ticks on every commit and every turn,
+# surfaces an escalating nudge once it crosses a threshold, and zeroes itself the
+# moment the agent writes to repo-wiki/. Soft signal only — never a gate.
+_DEBT_COMMITS_THRESHOLD = 5    # commits since last wiki write before nudging
+_DEBT_TURNS_THRESHOLD = 18     # user turns since last wiki write before nudging (15–20)
+
+
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _fresh_debt(root):
+    """A zeroed counter baselined at HEAD + now."""
+    return {"commits": 0, "turns": 0, "since_sha": head_sha(root), "since_ts": _now_iso()}
+
+
+def load_knowledge_debt(root, wm):
+    """The `knowledge_debt` sub-object from state.json, initialized when absent or
+    malformed (back-compat: older state.json files predate this key). Does not save."""
+    kd = wm.get("knowledge_debt")
+    if not isinstance(kd, dict):
+        return _fresh_debt(root)
+    kd.setdefault("since_sha", head_sha(root))
+    kd.setdefault("since_ts", _now_iso())
+    for k in ("commits", "turns"):
+        try:
+            kd[k] = int(kd.get(k, 0))
+        except (TypeError, ValueError):
+            kd[k] = 0
+    return kd
+
+
+def _is_wiki_page_path(rel):
+    """True for a tracked wiki *page* path (the unit whose write zeroes the debt).
+    Mirrors iter_pages: under repo-wiki/, a .md, not INDEX.md, not .ingest/.comments."""
+    rel = rel.replace("\\", "/")
+    if not rel.startswith("repo-wiki/") or not rel.endswith(".md"):
+        return False
+    if Path(rel).name == "INDEX.md":
+        return False
+    return "/.ingest/" not in "/" + rel and "/.comments/" not in "/" + rel
+
+
+def _wiki_written_since(wiki, since_ts):
+    """True if any tracked page's mtime is newer than since_ts — the 'agent actually
+    captured' signal for the turn counter (which can't see commits). Excludes
+    .ingest/ (so the search-index cache and state.json never trigger a false reset)
+    and .comments/ via iter_pages."""
+    try:
+        cutoff = datetime.fromisoformat(since_ts).timestamp()
+    except (TypeError, ValueError):
+        return False
+    for p in iter_pages(wiki):
+        try:
+            if p.stat().st_mtime > cutoff + 1e-6:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _debt_nudge(kd):
+    """A single escalating, agent-directed line when the counter is over a
+    threshold, else "". Wording climbs with how far past threshold it is, so a
+    diligent session never sees it and an ignored one gets louder."""
+    commits, turns = kd["commits"], kd["turns"]
+    if commits < _DEBT_COMMITS_THRESHOLD and turns < _DEBT_TURNS_THRESHOLD:
+        return ""
+    ratio = max(commits / _DEBT_COMMITS_THRESHOLD, turns / _DEBT_TURNS_THRESHOLD)
+    if ratio >= 2:
+        mark, verb = "⚠⚠", "STOP and capture"
+    elif ratio >= 1.5:
+        mark, verb = "⚠", "proactively OFFER to capture"
+    else:
+        mark, verb = "•", "consider offering to capture"
+    return (f"{mark} repo-wiki: {commits} commit(s) / {turns} turn(s) since the last wiki "
+            f"update. Review the durable knowledge this work produced (decisions, gotchas, "
+            f"new subsystems) and {verb} it — one line, propose-not-apply. "
+            f"(Resets when you write to repo-wiki/.)")
+
+
+def _uncovered_commit_dirs(commit_files, pages):
+    """Subsystem dirs of committed code matched by NO page's `covers` glob. Keyed by
+    the first two path segments (e.g. `src/payments`, not just `src`) so the hint
+    points at the subsystem, not the language root. Excludes repo-wiki/ and dotpaths."""
+    all_covers = []
+    for _, fm in pages:
+        cov = fm.get("covers") or []
+        if isinstance(cov, str):
+            cov = [cov] if cov else []
+        all_covers.extend(cov)
+    dirs, seen = [], set()
+    for f in commit_files:
+        f = f.replace("\\", "/")
+        if f.startswith("repo-wiki/") or f.startswith("."):
+            continue
+        if all_covers and matches_any(f, all_covers):
+            continue
+        parts = f.split("/")
+        key = "/".join(parts[:2]) if len(parts) > 1 else parts[0]
+        if key not in seen:
+            seen.add(key)
+            dirs.append(key)
+    return sorted(dirs)
+
+
+def cmd_turn_tick(args):
+    """UserPromptSubmit side of the knowledge-debt counter: +1 turn, reset on a wiki
+    write, print the escalating nudge when over threshold. Best-effort; the git hook
+    that calls it swallows failures, but stay defensive — always exit 0, never raise."""
+    try:
+        root = repo_root()
+        wiki = root / "repo-wiki"
+        if not wiki.exists():
+            return 0
+        wm = load_watermark(root)
+        kd = load_knowledge_debt(root, wm)
+        if _wiki_written_since(wiki, kd["since_ts"]):
+            kd = _fresh_debt(root)          # agent captured — clear the debt
+        else:
+            kd["turns"] += 1
+        wm["knowledge_debt"] = kd
+        save_watermark(root, wm)
+        nudge = _debt_nudge(kd)
+        if nudge:
+            print(f"[repo-wiki] {nudge}")
     except Exception:
         pass
     return 0
@@ -465,6 +611,27 @@ def cmd_post_commit(args):
             return 0
 
         pages = load_pages(wiki)
+
+        # ── knowledge-debt: +1 commit, or reset if this commit wrote a wiki page ──
+        try:
+            wm = load_watermark(root)
+            kd = load_knowledge_debt(root, wm)
+            if any(_is_wiki_page_path(f) for f in commit_files):
+                kd = _fresh_debt(root)
+            else:
+                kd["commits"] += 1
+            wm["knowledge_debt"] = kd
+            save_watermark(root, wm)
+            nudge = _debt_nudge(kd)
+            if nudge:
+                print(f"[repo-wiki] {nudge}")
+                uncovered = _uncovered_commit_dirs(commit_files, pages)
+                if uncovered:
+                    print("  ↳ committed code with no covering wiki page: "
+                          f"{', '.join(uncovered[:6])} — document the subsystem?")
+        except Exception:
+            pass
+
         st = compute_status(root, wiki, pages)
         surfaced = load_surfaced(root)
         delta = newly_stale(st["stale"], surfaced)
@@ -1232,8 +1399,13 @@ def install_comments_hook(root, add_if_missing=True):
     kb = _kb_path_expr(root, "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}")
     cmd = (
         f'KB="{kb}"; '
+        # knowledge-debt tick first — its escalating nudge (or nothing) prints ahead
+        # of any comments block. Folding it into THIS already-wired hook means existing
+        # installs adopt proactive capture via the SessionStart self-heal (which
+        # rewrites a hook whose desired command changed) — no re-init, no new hook.
+        'python3 "$KB" turn-tick 2>/dev/null || true; '
         'PENDING="$(python3 "$KB" comments list 2>/dev/null)" || true; '
-        '[ -z "$PENDING" ] || [ "$PENDING" = "No open comments." ] && exit 0; '
+        '{ [ -z "$PENDING" ] || [ "$PENDING" = "No open comments." ]; } && exit 0; '
         "printf '=== PENDING WIKI COMMENTS (feedback from the viewer -- please act on these) ===\\n'; "
         'printf \'%s\\n\' "$PENDING"; '
         "printf '=== end wiki comments -- resolve each with: kb.py comments resolve <id> --note \"<what you did>\" ===\\n'"
@@ -2693,6 +2865,8 @@ def main():
 
     sub.add_parser("post-commit", help="git post-commit hook: nudge about drift this commit caused (soft, non-blocking)")
 
+    sub.add_parser("turn-tick", help="UserPromptSubmit hook: tick the knowledge-debt counter + nudge to capture (soft, non-blocking)")
+
     rp = sub.add_parser("reconcile", help="heavy freshness scan → cache (run in background)")
     rp.add_argument("-v", "--verbose", action="store_true")
 
@@ -2744,6 +2918,7 @@ def main():
         "precompact": cmd_precompact,
         "session-end": cmd_session_end,
         "post-commit": cmd_post_commit,
+        "turn-tick": cmd_turn_tick,
         "reconcile": cmd_reconcile,
         "verify": cmd_verify,
         "search": cmd_search,

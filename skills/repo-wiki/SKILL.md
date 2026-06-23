@@ -331,20 +331,63 @@ hooks and one git hook. After that, maintenance is automatic:
 
 | Hook | Type | Fires | Effect |
 |---|---|---|---|
-| SessionStart | `.claude/settings.json` | every session | inject wiki, announce new-stale delta, self-heal git hook, spawn reconcile |
-| UserPromptSubmit | `.claude/settings.json` | every turn | inject open wiki comments |
+| SessionStart | `.claude/settings.json` | every session | inject wiki, announce new-stale delta, surface inherited knowledge-debt, self-heal hooks, spawn reconcile |
+| UserPromptSubmit | `.claude/settings.json` | every turn | tick the knowledge-debt counter (+ nudge) **then** inject open wiki comments |
 | PreCompact | `.claude/settings.json` | before compaction | prints extract-before-compaction directive |
 | SessionEnd | `.claude/settings.json` | session ends | nudge to run `kb catchup` |
-| post-commit | `.git/hooks/post-commit` | every commit | diff-scoped staleness nudge (exit 0 always) |
+| post-commit | `.git/hooks/post-commit` | every commit | diff-scoped staleness nudge + knowledge-debt tick (exit 0 always) |
 
 Add a CI check on PRs as the ungameable backstop. Full details: `references/activation.md`.
+
+## Proactive capture — the knowledge-debt counter
+
+Code drift is caught mechanically (`kb status` = git diff ∩ `covers`). Chat-borne
+knowledge — decisions, gotchas, "why", new subsystems — had no equivalent signal: it
+relied on the human remembering, or on edge-of-session nudges the agent blows past. A
+standing "propose a page" instruction decays over a long session as context fills.
+
+The **knowledge-debt counter** is that missing recurring signal. In
+`repo-wiki/.ingest/state.json` it tracks `{commits, turns, since_sha, since_ts}`:
+
+- **post-commit** → `commits += 1`; **turn-tick** (folded into the UserPromptSubmit
+  hook) → `turns += 1`.
+- Crossing a threshold (**≥ 5 commits or ≥ 15–20 turns** since the last wiki write)
+  prints a **visible, escalating, agent-directed** line (`•` → `⚠` → `⚠⚠`) telling the
+  agent to proactively *offer* a one-line capture. post-commit also names committed
+  subsystems with no covering page.
+- **Self-resetting**: writing any tracked page (`*.md`, not `INDEX.md`/`.ingest`/
+  `.comments`) zeroes the counter — a diligent session is never nagged. The reset
+  deliberately ignores `.ingest/` so the `search.db` cache and `state.json` itself
+  can't trigger a false reset.
+
+Deterministic to fire (no LLM judgment), recurs *during* the session in front of the
+agent, and never gates a commit — like `kb status`, a soft signal. Hard gates breed
+`--no-verify` habits; this is propose-not-apply pressure, not a blocker.
+
+### Upgrading an existing installation
+
+No re-init required. The new logic rides **existing** hook invocations, so it activates
+the moment a repo's `kb.py` is updated to this version:
+
+- **post-commit** and **SessionStart** already call `kb.py`; the new counter logic is
+  inside `cmd_post_commit` / `cmd_session_start`.
+- The **turn tick** is folded into the UserPromptSubmit hook's command. Existing installs
+  pick it up via the **SessionStart self-heal**, which rewrites a repo-wiki hook whose
+  *desired command* changed (not just a stale path) — so the next session re-wires the
+  comments hook to also run `turn-tick`. Zero manual steps.
+- `state.json` gains a `knowledge_debt` key, default-initialized on first read (old files
+  predate it; it's gitignored, so no migration conflict).
+
+The only installs needing a manual `kb plumbing` are ones predating the UserPromptSubmit
+comments hook entirely (self-heal repairs existing hooks but won't re-add a hook a user
+may have intentionally removed).
 
 ## New-collaborator / fresh clone
 
 **What a fresh clone inherits** (from `.claude/settings.json`, committed):
 
-- SessionStart hook — heartbeat, delta surfacing, self-heal, reconcile spawn
-- UserPromptSubmit hook — wiki comments injection
+- SessionStart hook — heartbeat, delta surfacing, knowledge-debt surfacing, self-heal, reconcile spawn
+- UserPromptSubmit hook — knowledge-debt turn-tick + wiki comments injection
 - PreCompact hook — extract-before-compaction directive
 - SessionEnd hook — catch-up nudge
 
