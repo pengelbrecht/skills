@@ -2,7 +2,7 @@
 type: decision
 source: canonical
 covers: [skills/repo-wiki/**, repo-wiki/INDEX.md]
-verified_against: ebe5cdf
+verified_against: 2cb8fa3
 status: active
 ---
 
