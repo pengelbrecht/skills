@@ -161,7 +161,8 @@ the user is pointing; the `comment` field tells you what they want.
      ```
      Bump `verified_against` to HEAD sha if the edit fixes a staleness signal.
    - **Capture:** create or append to the target page per the normal page model
-     (Compiled Truth + Timeline, `source`, `covers`). Propose-only if `canonical`.
+     (Compiled Truth + Timeline, `source`, `covers`). Apply directly; report the write
+     if it's significant (e.g. a new page or a `canonical` rewrite).
    - **Reply:** write your reply in the turn; resolve after.
    - **Defer:** note what you filed/created in the resolve message.
 

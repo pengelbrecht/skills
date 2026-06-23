@@ -14,8 +14,12 @@ derivable facts are generated on demand, not stored), and **(2) chat is the prim
 intake** (most non-derivable knowledge is tacit and surfaces in conversation, so it's
 mined from chats, not just code). Two axes — recoverability and sourcing
 (`canonical`/`from-code`/`from-doc`) — drive a per-page freshness model. Pages use a
-Compiled-Truth + Timeline shape. Everything is **propose-not-apply**; staleness is a soft
-signal, never a commit gate.
+Compiled-Truth + Timeline shape. Staleness is a soft signal, never a commit gate.
+
+> **Superseded in part:** the original **propose-not-apply** principle (every change
+> proposed for human approval before writing) was reversed on 2026-06-23 — see
+> [[0005-apply-and-report-not-propose]]. Agents now apply changes directly and report
+> significant writes. The rest of this decision still holds.
 
 **Rejected alternatives:**
 - GBrain's full architecture (Postgres + pgvector retrieval, typed entity graph) — too
@@ -30,3 +34,4 @@ signal, never a commit gate.
 ## Timeline
 
 - 2026-06-14 — captured from the design session that built repo-wiki (see docs/ideas/repo-wiki.md) — @fc77a0e
+- 2026-06-23 — propose-not-apply principle superseded by [[0005-apply-and-report-not-propose]] (owner reversed it; other principles unchanged) — @ebe5cdf

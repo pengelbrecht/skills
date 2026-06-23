@@ -52,9 +52,10 @@ page bodies                  ← paged in on demand, covers-scoped  (tier 3)
 The shim emphasizes **reading** (grounding), with two lightweight write nudges — because
 the heavy capture is *mechanical* (the `catchup` triage mines sessions regardless):
 
-1. "File new decisions/constraints per `INDEX.md` (propose-only)."
+1. "File new decisions/constraints per `INDEX.md` (apply directly — git is the review;
+   report significant writes)."
 2. **Write-back on a cache miss.** If the agent needs knowledge the wiki lacks, it should
-   resolve it (read the code / ask the user / web-search) and then *propose* a page so the
+   resolve it (read the code / ask the user / web-search) and then *add* a page so the
    next agent doesn't re-derive it. This makes the wiki a write-back cache that grows from
    everyday use, not just from chats. The same recoverability filter applies — only
    durable, non-obvious knowledge is captured; trivia that's cheap to re-derive stays out.
@@ -71,7 +72,8 @@ Same triage primitive as chat-capture, run over a file instead of a conversation
 3. Route knowledge into the MECE folders via the resolver; stamp `covers` where
    code-scoped.
 4. Replace the migrated bulk with the shim (`assets/templates/shim.md`).
-5. **Propose the whole thing as a diff** — the human approves; nothing auto-applies.
+5. **Apply the migration directly, then report it** — a CLAUDE.md rewrite is a significant
+   change, so summarize it in your turn; the human reviews the diff and reverts if off.
 
 `kb.py init` offers to do this when it detects an existing instruction file.
 

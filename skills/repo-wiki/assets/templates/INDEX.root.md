@@ -1,6 +1,6 @@
 # repo-wiki
 
-The knowledge base for this repository. **Agent-first, propose-not-apply.**
+The knowledge base for this repository. **Agent-first, apply-and-report.**
 Read this file first, then pull pages by relevance — don't read the whole tree.
 
 ## How to use this wiki
@@ -9,8 +9,11 @@ Read this file first, then pull pages by relevance — don't read the whole tree
   frontmatter against the files you're touching, skim each page's **Compiled Truth**
   (the first lines). Session start injects the pages relevant to your working set.
 - **Add knowledge:** pick the folder with the resolver below, use the page shape
-  (Compiled Truth + Timeline), stamp `covers:` if code is involved, and **propose the
-  diff** — never silently apply. Decisions are append-only; supersede, don't edit.
+  (Compiled Truth + Timeline), stamp `covers:` if code is involved, and **apply the
+  change directly** — git review is the safety net, so don't block to ask first.
+  **Report significant writes** (a new page, a rewritten Compiled Truth, a superseded
+  decision) in your turn so the user can review or `git`-revert; trivial appends need no
+  announcement. Decisions are append-only; supersede, don't edit.
 - **Freshness:** `kb status` flags pages whose `covers` paths changed since their
   `verified_against` sha. Stale is a *signal*, not a gate.
 
@@ -27,9 +30,10 @@ gap so the next agent doesn't pay the same cost:
      `from:` URL).
 2. **Use it** for your task.
 3. If it's **durable and non-obvious** — it would help the next agent and isn't cheap to
-   re-derive — **propose** a wiki page for it: route via the resolver, stamp `covers`, set
-   `source` per above, dedup against existing pages first. **Skip trivia** you could
-   re-derive in seconds (that stays out of the wiki by design).
+   re-derive — **add** a wiki page for it: route via the resolver, stamp `covers`, set
+   `source` per above, dedup against existing pages first. Apply it directly and report a
+   new page in your turn. **Skip trivia** you could re-derive in seconds (that stays out
+   of the wiki by design).
 
 This makes the wiki a write-back cache: every genuine gap becomes a one-time fill.
 

@@ -9,8 +9,9 @@ This repo's knowledge lives in `repo-wiki/`. **Read `repo-wiki/INDEX.md` first**
 map + filing rules. Don't read the whole wiki; pull pages by relevance (`covers:`
 frontmatter, `grep`, descriptive filenames, each page's Compiled-Truth first line).
 When you settle a decision or learn a constraint, file it per `repo-wiki/INDEX.md`
-(propose-only). **If knowledge you need isn't in the wiki:** find it (read the code, ask,
-or web-search), use it, then propose adding it so the next agent doesn't re-derive it —
+(apply directly — git is the review; report significant writes so they can be reverted).
+**If knowledge you need isn't in the wiki:** find it (read the code, ask,
+or web-search), use it, then add it so the next agent doesn't re-derive it —
 when it's durable and non-obvious. Full method: the `repo-wiki` skill (`skills/repo-wiki/`).
 
 Browse it in a browser: `python3 skills/repo-wiki/scripts/kb.py serve`.

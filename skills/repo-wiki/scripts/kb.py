@@ -3,8 +3,9 @@
 kb.py — repo-wiki command line.
 
 Deterministic, dependency-free (Python 3 stdlib + git + the vendored recall scripts).
-Git decides staleness; the model only ever writes/proposes content. Nothing here
-auto-applies edits to your knowledge base — these commands report and scaffold.
+Git decides staleness; the model writes content directly and reports significant edits
+(git review is the safety net). These commands themselves only report and scaffold —
+they never mutate pages.
 
 Subcommands:
   init           Install all hooks/plumbing ONLY — no dir/INDEX scaffolding.
@@ -280,7 +281,7 @@ def cmd_precompact(args):
         "  1. Run the chat-extraction prompt (repo-wiki/references/extraction.md, Prompt 1)\n"
         "     over the recent conversation — only the window SINCE the last extraction\n"
         f"     (avoid re-mining already-ingested turns).{wm_hint}\n"
-        "  2. Propose durable knowledge into repo-wiki/ (propose-only, no auto-apply).\n"
+        "  2. File durable knowledge into repo-wiki/ (apply directly; report significant writes).\n"
         "  3. Advance the watermark once done:\n"
         "       kb.py watermark --set-session <newest-session-id>\n"
         "  This prevents double-extraction on repeated compactions."
@@ -293,7 +294,8 @@ def cmd_session_end(args):
     print(
         "[repo-wiki] Session ending — run `kb catchup` (or `python3 kb.py catchup`) so\n"
         "this session's durable knowledge is mined before it's gone.\n"
-        "Propose-only: file insights into repo-wiki/, then advance the watermark."
+        "Apply directly (git is the review): file insights into repo-wiki/, report\n"
+        "significant writes, then advance the watermark."
     )
     return 0
 
@@ -321,7 +323,7 @@ def cmd_catchup(args):
     print(
         "\nNext: triage these (newest first). Read one with:\n"
         f"  python3 {RECALL.parent / 'read_session.py'} <File-path-above>\n"
-        "Then file durable knowledge into repo-wiki/ (propose-only), and advance:\n"
+        "Then file durable knowledge into repo-wiki/ (apply directly; report significant writes), and advance:\n"
         "  python3 kb.py watermark --set-session <newest-session-id> --set-sha <HEAD-sha>"
     )
     return 0
@@ -401,8 +403,9 @@ def cmd_session_start(args):
         # alive mid-session; this line is the phrasing the agent reaches for when it
         # fires. Config-independent so it works even when no shim points here.
         print("[repo-wiki] After any turn that settles a decision, uncovers a "
-              "non-obvious fact, or changes how the system works, proactively OFFER a "
-              "one-line wiki capture — don't wait to be asked (propose-not-apply). "
+              "non-obvious fact, or changes how the system works, capture it into the "
+              "wiki directly — apply the change, then report significant writes so the "
+              "user can review or revert (git is the safety net; don't block to ask). "
               "On a cache miss, resolve it (read code / ask / web-search) first.")
         # Surface inherited knowledge-debt so a fresh session picks up the pressure.
         try:
@@ -519,13 +522,13 @@ def _debt_nudge(kd):
     if ratio >= 2:
         mark, verb = "⚠⚠", "STOP and capture"
     elif ratio >= 1.5:
-        mark, verb = "⚠", "proactively OFFER to capture"
+        mark, verb = "⚠", "capture"
     else:
-        mark, verb = "•", "consider offering to capture"
+        mark, verb = "•", "consider capturing"
     return (f"{mark} repo-wiki: {commits} commit(s) / {turns} turn(s) since the last wiki "
             f"update. Review the durable knowledge this work produced (decisions, gotchas, "
-            f"new subsystems) and {verb} it — one line, propose-not-apply. "
-            f"(Resets when you write to repo-wiki/.)")
+            f"new subsystems) and {verb} it directly — apply the write, report it if "
+            f"significant (git is the review). (Resets when you write to repo-wiki/.)")
 
 
 def _uncovered_commit_dirs(commit_files, pages):
@@ -1087,7 +1090,7 @@ def cmd_init(args):
         print(f"\nFound {', '.join(shims)} — after the wiki is scaffolded, consider migrating")
         print("its *knowledge* into the wiki and leaving a thin shim")
         print("(see references/claude-md-shim.md + assets/templates/shim.md).")
-        print("This is propose-only; review the diff.")
+        print("Apply it directly and report the migration; review the diff in git.")
     return 0
 
 

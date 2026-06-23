@@ -40,7 +40,7 @@ Organized: one page per significant invariant; minor ones grouped.
 
 Contents discovery = `ls` + descriptive filenames + `covers:` frontmatter +
 Compiled-Truth first lines. The **root `INDEX.md`** additionally holds the resolver
-table below + the manual (page model, intake, propose-not-apply). Nested `INDEX.md`
+table below + the manual (page model, intake, apply-and-report). Nested `INDEX.md`
 beyond the per-folder blurb are opt-in — add a curated reading order only for a large
 folder where it beats `ls`, and know you must keep it current.
 

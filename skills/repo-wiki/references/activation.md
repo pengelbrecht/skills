@@ -124,6 +124,6 @@ commits made without an agent session, and bypassed local hooks.
 
 Guaranteed: **detection, reconciliation, and prompting.** Not guaranteed: that a human
 authors *good* knowledge — that judgment stays human. The system's job is to surface the
-opportunity at near-zero cost (a pre-drafted, git-scoped, propose-not-apply diff) and
+opportunity at near-zero cost (a git-scoped change applied in place and reported) and
 make ignoring it visible every session. Running the engine is mechanical; acting on its
 output is made cheap and visible, not forced.

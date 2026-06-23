@@ -55,15 +55,19 @@ carry both when a cached traversal is *about* the same paths it's *derived from*
 Staleness is always a **soft signal** — a review-queue entry, never a commit gate.
 What differs is the suggested action when covered paths / upstream change:
 
-| `source` | on drift | auto-apply? |
+| `source` | on drift | auto-regenerate? |
 |---|---|---|
-| **from-code** (traversal cache) | re-run the traversal, propose the updated page | **yes** — re-reading code can't fabricate |
-| **from-doc** (ADR/spec mirror) | re-summarize from the upstream doc | mostly — propose the diff |
-| **canonical** (born here) | flag for human review ("is this still true?") | **no** — auto-rewrite would fabricate non-derivable truth |
+| **from-code** (traversal cache) | re-run the traversal, write the updated page | **yes** — re-reading code can't fabricate |
+| **from-doc** (ADR/spec mirror) | re-summarize from the upstream doc | mostly — re-derive from the source |
+| **canonical** (born here) | flag for human review ("is this still true?") | **no** — there's no upstream to regenerate from; only a human knows if it still holds |
 
-The load-bearing rule: **anyone (including an agent) may propose a Timeline append —
-cheap and safe. Rewriting Compiled Truth is gated by `source`.** This is what keeps a
-plausible-but-wrong auto-edit from re-poisoning the trust the wiki exists to protect.
+Note this is about **automated re-sync on drift**, not about the agent's write policy.
+Under apply-and-report ([[0005-apply-and-report-not-propose]]) an agent editing a page
+in-session writes directly and reports significant changes — including canonical. The
+`source` axis only governs what the *freshness system* can regenerate unattended:
+`from-code`/`from-doc` have an authoritative upstream to re-derive from; `canonical` has
+none, so on drift it can only be flagged, never auto-rewritten — that's a capability
+limit, not a permission gate.
 
 ## Synthesize sparingly
 

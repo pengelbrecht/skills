@@ -6,7 +6,7 @@ surfaced in discussion — decisions, constraints, gotchas, glossary terms, prod
 context — **whether or not any code changed** (a session can settle a decision with zero
 diff; that's a first-class keeper). The commit prompt does *code-synthesis* (refresh
 derivable caches) and flags drift, from the diff alone. Run them independently — they
-have different inputs, cadences, and auto-apply safety.
+have different inputs, cadences, and regeneration safety.
 
 ## Run extraction off the main thread
 
@@ -76,13 +76,13 @@ only as a hint for focus and for guessing `covers`).
 > 4. Set `verified_against` to the current HEAD sha. Terse, claim-first **Compiled
 >    Truth** + one **Timeline** entry:
 >    `- <date> — captured from chat (session <id>) — @<HEAD-sha>`.
-> 5. **Dedup against the outline:** if a page already covers this, propose an *update*
+> 5. **Dedup against the outline:** if a page already covers this, make an *update*
 >    (append Timeline, rewrite Compiled Truth), not a new page. For a decision, record
 >    the rejected alternative(s) + rationale; supersede prior decisions by reference,
 >    never edit their history.
 >
-> **Output:** proposed page diffs, each with a one-line summary, for human approval. Do
-> not write any file.
+> **Output:** write the pages directly, then report each with a one-line summary so the
+> user can review or revert. Apply-and-report — git is the safety net.
 
 **When:** at session-end (warm fast-path) and inside `kb catchup` (the safety net) for
 each session since the watermark — **including sessions with no commits**, which the
@@ -102,20 +102,22 @@ this prompt reads only the code change, so it can run at commit/PR/CI time with 
 > Do two things:
 >
 > **A. Refresh derivable caches.** For each `from-code` page in the outline whose `covers`
-> intersect the diff, propose a re-synthesis: re-trace the now-current code and rewrite
+> intersect the diff, write a re-synthesis: re-trace the now-current code and rewrite
 > its Compiled Truth, appending a Timeline entry `- <date> — re-synthesized from code —
 > @<sha>`. If the diff introduced a subsystem whose cross-file flow is **expensive to
-> re-trace and will be read often**, propose a new `from-code` page in `architecture/`.
+> re-trace and will be read often**, add a new `from-code` page in `architecture/`.
 > Do **not** create pages for cheap-to-read code — derivable knowledge is generated on
 > demand, not persisted.
 >
 > **B. Flag canonical drift.** For each `canonical` page whose `covers` intersect the
-> diff, do **not** rewrite it — its truth isn't in the code. Instead flag it for human
+> diff, do **not** rewrite it — its truth isn't in the code, and this prompt has no chat
+> to re-verify it against, so it *can't* be regenerated here. Instead flag it for human
 > re-verification with a specific question, e.g. "this constraint covers
 > `src/billing/**`, which changed — is '<Compiled Truth>' still true?"
 >
-> **Output:** proposed `from-code` page diffs (A) and a review list (B), for human
-> approval. Never auto-apply a canonical rewrite.
+> **Output:** apply the `from-code` page writes (A) directly and report them; emit the
+> canonical review list (B) as flags. The canonical flag-only rule is a *capability*
+> limit (no source to regenerate from in a code-only run), not a write-permission gate.
 
 **When:** post-commit hook, pre-PR, or CI. This is the git stream's own contribution —
 independent of any chat. (`kb status` computes the same `covers`∩diff intersection
@@ -132,7 +134,7 @@ question.)
 | Captures | non-derivable knowledge — decisions, constraints, terms, gotchas | refreshes derivable caches; flags drift |
 | Needs a code change? | **no** — zero-diff discussions count | yes — it *is* the diff |
 | Needs a chat? | yes | **no** — runs at commit/PR/CI |
-| Auto-apply | propose-only (canonical) | A: re-synth is safe to draft; B: flag-only |
+| Write | apply directly, report significant | A: re-synth applied + reported; B: flag-only (no source to regenerate) |
 | Precious? | capture-or-lose-forever | regenerable cache |
 
 ## Dedup helpers (both prompts)

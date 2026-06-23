@@ -24,7 +24,7 @@
 # What it does:
 #   - Tells Claude to run the chat-extraction prompt (references/extraction.md, Prompt 1)
 #     over the conversation window SINCE the last extraction watermark.
-#   - Instructs Claude to propose durable knowledge (propose-only, never auto-apply).
+#   - Instructs Claude to file durable knowledge (apply directly; report significant writes).
 #   - Instructs Claude to advance the watermark after extraction.
 #   - References the watermark to avoid re-mining already-ingested turns on repeated
 #     compactions within the same session.

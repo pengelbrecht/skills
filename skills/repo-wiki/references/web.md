@@ -280,9 +280,10 @@ reverse proxy without authentication.
 
 In-browser editing (create page, edit Compiled Truth, append Timeline entry) is
 tracked as a follow-up epic. The current viewer is **mostly read-only** — `POST
-/api/comment` is the only write surface (human feedback, not content edits). The
-propose-not-apply discipline that keeps `canonical` pages trustworthy still applies:
-any edit path must gate `canonical` rewrites on human confirmation.
+/api/comment` is the only write surface (human feedback, not content edits). Content
+edits remain the agent's job in-repo under apply-and-report
+([[0005-apply-and-report-not-propose]]): write directly, report significant changes,
+revert via git — including `canonical` pages.
 
 Comments + live auto-refresh are now shipped. See `references/comments.md` for the
 full consumption protocol (hook install, watch-loop, act-then-resolve).

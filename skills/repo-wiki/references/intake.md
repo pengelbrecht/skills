@@ -109,7 +109,7 @@ baseline (`repo-wiki/.ingest/seed.json`); the per-machine cursor stays gitignore
 ## Code-synthesis on git change
 
 When a `from-code` page's `covers` paths change, the same git diff that flags it can
-trigger a **re-synthesis**: re-trace the code, propose the updated Compiled Truth. This
+trigger a **re-synthesis**: re-trace the code, write the updated Compiled Truth. This
 is the one place auto-regeneration is safe (re-reading code can't fabricate). `kb
 status` surfaces these alongside canonical drift; the difference is the suggested action
 (re-synthesize vs flag-for-review).

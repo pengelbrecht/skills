@@ -14,13 +14,15 @@ work out to parallel subagents so a cold-start on an existing repo is fast.
 
 Three invariants that apply end-to-end:
 
-- **Propose-not-apply.** Every generated page is a proposal for human approval. Nothing
-  is written to disk without an explicit OK.
+- **Apply-and-report.** The *structure* still needs agreement before scaffolding (Gate 1
+  below) — a folder tree is a one-time structural commitment. But once it's agreed, the
+  page **content** is written directly and the import batch is **reported** so the user
+  can review or `git`-revert; no per-page approval gate. See
+  [[0005-apply-and-report-not-propose]].
 - **Stingy.** A few real, durable, non-derivable pages beats a folder of thin stubs.
-  If nothing durable was found in a source, propose nothing.
+  If nothing durable was found in a source, write nothing.
 - **Always-MECE.** The agreed structure must have exactly one home per fact. No overlaps,
-  no gaps. Every proposed page is routed through the agreed resolver before being
-  surfaced.
+  no gaps. Every page is routed through the agreed resolver before being written.
 
 ---
 

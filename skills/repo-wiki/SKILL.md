@@ -23,8 +23,9 @@ A living, **agent-first** knowledge base that lives in a git repo at `repo-wiki/
 It stays trustworthy because of two commitments: **store only what the code can't
 regenerate**, and **capture the reasoning that otherwise dies at the end of every
 chat**. Staleness is detected deterministically by git; tacit knowledge is mined
-from conversations. Nothing is auto-applied — every change is proposed for a human's
-quick yes/no.
+from conversations. Changes are applied directly — git review is the safety net — and
+**significant writes are reported** so the human can review or revert. It's
+apply-and-report, not ask-first.
 
 > Full design rationale: see `docs/ideas/repo-wiki.md` in this repo if present.
 > This SKILL.md is the operating manual; depth lives in `references/`.
@@ -126,9 +127,10 @@ gates:
   Mining begins only after Gate 2 closes.
 
 Once both gates close, mining **fans out to parallel subagents** — one per source type —
-so a large repo's cold-start is fast and non-blocking. Every generated page is a
-**proposal only**; nothing is written to disk without explicit human approval
-(propose-not-apply invariant applies end-to-end).
+so a large repo's cold-start is fast and non-blocking. Generated pages are **applied
+directly** and the batch is reported, so the human can review the diff and revert any
+miss (apply-and-report applies end-to-end; the bootstrap import is itself a significant
+write worth summarizing).
 
 > **`kb init` / `kb plumbing` are order-independent.** Run either at any time during the
 > bootstrap flow (even before Gate 1) to wire all hooks. Neither creates structure.
@@ -187,17 +189,21 @@ Billing endpoints must stay <50 req/s — the upstream ledger API rate-limits us
 - 2026-06-13 — captured from chat (session abc); 429s above ~50rps — verified @a1b2c3d
 ```
 
-The rule that keeps trust intact: **anyone may *propose* a Timeline append (cheap,
-safe); rewriting Compiled Truth is gated by `source`** — `from-code` may be
-auto-regenerated (re-reading code can't fabricate), `canonical` is flagged for a human
-(auto-rewrite would fabricate non-derivable truth). Full page conventions and the
-three-way freshness model: `references/pages.md`.
+The rule that keeps trust intact: **apply directly, then report significant writes** —
+git review is the safety net, so an agent writes the change rather than blocking to ask.
+A Timeline append is cheap and silent; a new page or a rewritten Compiled Truth is
+significant — name it in your turn so the human can review or `git`-revert. The `source`
+axis still labels *recoverability* (`from-code` can be re-derived by re-reading code;
+`canonical` is non-derivable why/intent), which drives freshness — but it no longer gates
+the *act* of writing. Full page conventions and the three-way freshness model:
+`references/pages.md`.
 
 ## Capturing knowledge (the core loop)
 
 When a session settles a decision, surfaces a constraint, or defines a term, file it.
 Use the resolver to pick the folder, the page template (`assets/templates/page.md`)
-for the shape, and **propose the diff — don't silently apply it.** If code is
+for the shape, and **apply the change directly — then report it if it's significant**
+(a new page or a rewritten Compiled Truth, not a one-line Timeline append). If code is
 involved, stamp `covers:` with the relevant paths so the page enters the staleness
 system already wired in.
 
@@ -208,7 +214,7 @@ code** (a decision reached with zero diff is a first-class keeper); the other re
 a **commit** diff (refresh `from-code` caches + flag canonical drift) and needs no chat.
 Both **first load `python3 scripts/kb.py outline`**
 so they route and dedup against the *actual* wiki (real categories + existing pages),
-not the generic defaults. Both are stingy and propose-only. Prompt 1 runs at session-end
+not the generic defaults. Both are stingy and apply-and-report. Prompt 1 runs at session-end
 and inside `kb catchup`; prompt 2 runs at commit/PR/CI.
 
 Most capture is **mechanical**: the `kb catchup` engine mines past sessions so nothing
@@ -216,7 +222,7 @@ is lost even if you forget to file inline. See `references/intake.md`.
 
 **Write-back on a cache miss** is the third capture path (alongside chat triage and
 code-synthesis): when an agent needs project knowledge the wiki lacks, it resolves it
-(reads the code, asks the user, or web-searches) and then **proposes a page** so the next
+(reads the code, asks the user, or web-searches) and then **adds a page** so the next
 agent doesn't re-derive it — only when the knowledge is durable and non-obvious. This is
 why the shim and root `INDEX.md` carry a "missing knowledge?" instruction: the wiki is a
 write-back cache that grows from use, not just from chats.
@@ -344,7 +350,7 @@ Add a CI check on PRs as the ungameable backstop. Full details: `references/acti
 Code drift is caught mechanically (`kb status` = git diff ∩ `covers`). Chat-borne
 knowledge — decisions, gotchas, "why", new subsystems — had no equivalent signal: it
 relied on the human remembering, or on edge-of-session nudges the agent blows past. A
-standing "propose a page" instruction decays over a long session as context fills.
+standing "add a page" instruction decays over a long session as context fills.
 
 The **knowledge-debt counter** is that missing recurring signal. In
 `repo-wiki/.ingest/state.json` it tracks `{commits, turns, since_sha, since_ts}`:
@@ -362,7 +368,7 @@ The **knowledge-debt counter** is that missing recurring signal. In
 
 Deterministic to fire (no LLM judgment), recurs *during* the session in front of the
 agent, and never gates a commit — like `kb status`, a soft signal. Hard gates breed
-`--no-verify` habits; this is propose-not-apply pressure, not a blocker.
+`--no-verify` habits; this is capture pressure, not a blocker.
 
 ### Upgrading an existing installation
 
@@ -443,6 +449,7 @@ existing file is the same triage primitive run over a file instead of a chat. Se
 
 This skill guarantees *detection, reconciliation, and prompting*. It cannot force a
 human to author *good* knowledge — that judgment stays human. It surfaces the
-opportunity at near-zero cost (a pre-drafted, git-scoped, propose-not-apply diff) and
+opportunity at near-zero cost (a git-scoped change applied in place) and
 makes ignoring it visible every session. Don't promise a fully-autonomous *correct*
-KB; the human-in-the-loop on `canonical` pages is a feature, not a gap.
+KB; the human reviews the committed diff and reverts what's wrong — the report-and-revert
+loop on significant writes is the check, not a pre-write gate.
