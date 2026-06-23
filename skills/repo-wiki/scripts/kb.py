@@ -501,54 +501,122 @@ def cmd_post_commit(args):
 _UNINGESTED_CAP = 50  # cap the first-run count so an unindexed watermark can't inflate it
 
 
+def worktree_roots(root):
+    """Resolved paths of every git worktree for this repo (main + linked).
+
+    A chat session run inside a worktree records that worktree's path as its cwd,
+    so ingestion must treat each worktree as part of "this repo" — otherwise chats
+    done in a worktree never get flagged for ingestion in the main checkout. Falls
+    back to [root] when `git worktree list` is unavailable.
+    """
+    rr = _resolve_path(root)
+    out, code = git("worktree", "list", "--porcelain", cwd=str(root))
+    roots = []
+    if code == 0 and out:
+        for line in out.splitlines():
+            if line.startswith("worktree "):
+                roots.append(_resolve_path(line[len("worktree "):].strip()))
+    seen, uniq = set(), []
+    for r in [*roots, rr]:  # guarantee the current root is present
+        if r and r not in seen:
+            seen.add(r)
+            uniq.append(r)
+    return uniq
+
+
+def _resolve_path(p):
+    """Canonicalize a path for boundary comparison (symlinks, '..', trailing sep),
+    tolerating non-existent paths (a worktree may have been removed)."""
+    try:
+        return str(Path(p).resolve())
+    except Exception:
+        return os.path.normpath(str(p))
+
+
+def _cwd_within(cwd, roots):
+    """True iff cwd is exactly one of roots or strictly nested under one.
+
+    A real path-boundary check (component-aware via the trailing os.sep), so repo
+    `/a/skills` never matches a sibling `/a/skills-archive` whose path merely
+    shares the string prefix.
+    """
+    if not cwd:
+        return False
+    c = _resolve_path(cwd)
+    return any(c == r or c.startswith(r + os.sep) for r in roots)
+
+
 def _parse_recall_sessions(root, days=30):
-    """Parse vendored recall's list-mode output into real (non-subagent) sessions.
+    """Real (non-subagent) chat sessions for THIS repo — every git worktree of it
+    included — newest-first.
 
     Recall has no --json flag; we parse its text output. Format per entry:
 
-        [1] 2026-06-15 | slug | <title> [claude]
-            /path/to/project
+        [1] 2026-06-15 | slug | <project-name> [claude]
+            /path/to/project           # the session's recorded cwd (present iff set)
             ID: <session-id>
             File: /Users/.../projects/<slug>/<uuid>.jsonl
 
-    Returns a list of {"sid", "fpath", "date"} dicts, newest-first, with subagent
-    transcripts dropped (File path contains '/subagents/' OR ID starts with 'agent-')
-    — those are orchestration noise, not user chats to mine. [] on any error.
+    Recall scopes by that cwd via a coarse `--project` *prefix* (no path boundary),
+    so we call it once per worktree root to bound volume, then apply an exact
+    path-boundary filter in Python — this both kills sibling-prefix bleed (#1) and
+    unions worktree chats (#2). Subagent transcripts are dropped (File path contains
+    '/subagents/' OR ID starts with 'agent-'). Returns {"sid","fpath","date"} dicts;
+    [] on any error.
     """
     if not RECALL.exists():
         return []
-    try:
-        proc = subprocess.run(
-            [sys.executable, str(RECALL), "--project", str(root), "--days", str(days),
-             "--limit", "2000"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if proc.returncode != 0:
-            return []
-    except Exception:
-        return []
+    roots = worktree_roots(root)
 
-    out = []
-    pending_date = pending_id = None
-    for raw in proc.stdout.splitlines():
-        line = raw.strip()
-        m = re.match(r"^\[\d+\]\s+(\d{4}-\d{2}-\d{2})", line)
-        if m:
-            pending_date = m.group(1)
-            pending_id = None
+    entries = []
+    for r in roots:
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(RECALL), "--project", r, "--days", str(days),
+                 "--limit", "2000"],
+                capture_output=True, text=True, timeout=30,
+            )
+        except Exception:
             continue
-        if line.startswith("ID:"):
-            pending_id = line[len("ID:"):].strip()
+        if proc.returncode != 0:
             continue
-        if line.startswith("File:"):
-            fpath = line[len("File:"):].strip()
-            if pending_id is not None:
-                out.append({"sid": pending_id, "fpath": fpath, "date": pending_date})
-            pending_id = pending_date = None
-    return [
-        s for s in out
-        if "/subagents/" not in s["fpath"] and not s["sid"].startswith("agent-")
-    ]
+        pending = None
+        for raw in proc.stdout.splitlines():
+            line = raw.strip()
+            m = re.match(r"^\[\d+\]\s+(\d{4}-\d{2}-\d{2})", line)
+            if m:
+                pending = {"date": m.group(1), "cwd": None, "sid": None, "fpath": None}
+                continue
+            if pending is None:
+                continue
+            if line.startswith("ID:"):
+                pending["sid"] = line[len("ID:"):].strip()
+            elif line.startswith("File:"):
+                pending["fpath"] = line[len("File:"):].strip()
+                if pending["sid"]:
+                    entries.append(pending)
+                pending = None
+            elif pending["cwd"] is None and line and not line.startswith(">"):
+                # first indented non-meta line after the header is the project cwd
+                pending["cwd"] = line
+
+    # Exact-boundary filter (kills sibling-prefix bleed), drop subagents, dedupe by
+    # sid (a session appears once per worktree call it matched).
+    seen, out = set(), []
+    for s in entries:
+        if not _cwd_within(s["cwd"], roots):
+            continue
+        if "/subagents/" in (s["fpath"] or "") or s["sid"].startswith("agent-"):
+            continue
+        if s["sid"] in seen:
+            continue
+        seen.add(s["sid"])
+        out.append({"sid": s["sid"], "fpath": s["fpath"], "date": s["date"]})
+
+    # Stable newest-first. Recall dates are day-granular; a stable sort preserves
+    # recall's per-call ordering within a day.
+    out.sort(key=lambda s: s["date"] or "", reverse=True)
+    return out
 
 
 def effective_watermark(root):
@@ -735,6 +803,9 @@ def install_plumbing(root):
         "repo-wiki/.ingest/state.json",
         "repo-wiki/.ingest/status.json",
         "repo-wiki/.ingest/surfaced.json",
+        "repo-wiki/.ingest/search.db",
+        "repo-wiki/.ingest/search.db-wal",
+        "repo-wiki/.ingest/search.db-shm",
         "repo-wiki/.comments/",
     ])
 
@@ -1320,6 +1391,242 @@ def _search_wiki(wiki, query):
     return results
 
 
+# ── full-text search (SQLite FTS5 / BM25) ─────────────────────────────────────
+# Ranked keyword search over page bodies, modeled on the `recall` skill's FTS5
+# approach (porter stemmer + bm25 + snippet()), adapted for *mutable* pages:
+# the index is a per-machine cache rebuilt incrementally by file mtime, never
+# committed. Falls back to ripgrep (`_search_wiki`) when sqlite3 lacks FTS5.
+# Each hit carries the page's Compiled-Truth line as context (the qmd-inspired
+# "breadcrumb on a hit" idea), so a match comes with the page's gist, not just a
+# snippet.
+
+_FTS_AVAILABLE = None  # tri-state cache: None=unknown, True/False once probed
+
+
+def _fts5_available():
+    """True iff this interpreter's sqlite3 was built with the FTS5 module."""
+    global _FTS_AVAILABLE
+    if _FTS_AVAILABLE is None:
+        try:
+            import sqlite3
+            db = sqlite3.connect(":memory:")
+            db.execute("CREATE VIRTUAL TABLE _probe USING fts5(x)")
+            db.close()
+            _FTS_AVAILABLE = True
+        except Exception:
+            _FTS_AVAILABLE = False
+    return _FTS_AVAILABLE
+
+
+def _search_db_path(wiki):
+    return wiki / ".ingest" / "search.db"
+
+
+# Section headings from the standard page shape — structural, not topical, so
+# they make poor titles / search anchors.
+_STRUCTURAL_HEADINGS = {"compiled truth", "timeline"}
+
+
+def _page_title(text, rel):
+    """The page's topical title for display + BM25 boost.
+
+    Prefers the first *non-structural* markdown heading. repo-wiki pages have no
+    H1 (they open with `## Compiled Truth`), so in practice this falls through to
+    the filename stem — which, by convention (e.g. `NNNN-slug.md`), encodes the
+    topic better than any heading anyway.
+    """
+    for line in text.splitlines():
+        m = re.match(r"^#{1,6}\s+(.*\S)\s*$", line)
+        if m:
+            heading = m.group(1).strip()
+            if heading.lower() not in _STRUCTURAL_HEADINGS:
+                return heading
+    stem = Path(rel).stem
+    stem = re.sub(r"^\d{3,4}-", "", stem)  # drop decision-record number prefix
+    return stem.replace("-", " ").replace("_", " ")
+
+
+def _strip_frontmatter(text):
+    """Drop a leading YAML frontmatter block so it isn't indexed as body text."""
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            nl = text.find("\n", end + 1)
+            return text[nl + 1:] if nl != -1 else ""
+    return text
+
+
+def _open_search_db(wiki):
+    import sqlite3
+    path = _search_db_path(wiki)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(str(path))
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS meta "
+        "(path TEXT PRIMARY KEY, mtime REAL, title TEXT, summary TEXT, folder TEXT)"
+    )
+    # Searchable columns: title + body. path is stored UNINDEXED so results carry
+    # it without polluting the term index. porter stemmer matches recall.
+    db.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS pages USING fts5("
+        "path UNINDEXED, title, body, tokenize = 'porter unicode61')"
+    )
+    return db
+
+
+def _reindex_search_db(db, wiki):
+    """Incrementally sync the FTS index to the wiki tree by file mtime.
+
+    New/changed pages are re-inserted, deleted pages dropped. Returns the number
+    of pages touched. Cheap on a warm index: one stat() per page, reparse only on
+    drift — pages are mutable, so mtime (not git sha) is the right change signal.
+    """
+    existing = {row[0]: row[1] for row in db.execute("SELECT path, mtime FROM meta")}
+    seen, touched = set(), 0
+    for p in iter_pages(wiki):
+        rel = str(p.relative_to(wiki))
+        seen.add(rel)
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        prev = existing.get(rel)
+        if prev is not None and abs(prev - mtime) < 1e-6:
+            continue  # unchanged
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        title = _page_title(text, rel)
+        summary = compiled_truth_first_line(text)
+        folder = rel.split("/")[0] if "/" in rel else ""
+        body = _strip_frontmatter(text)
+        db.execute("DELETE FROM pages WHERE path = ?", (rel,))
+        db.execute(
+            "INSERT INTO pages(path, title, body) VALUES (?, ?, ?)",
+            (rel, title, body),
+        )
+        db.execute(
+            "INSERT INTO meta(path, mtime, title, summary, folder) VALUES (?,?,?,?,?) "
+            "ON CONFLICT(path) DO UPDATE SET "
+            "mtime=excluded.mtime, title=excluded.title, "
+            "summary=excluded.summary, folder=excluded.folder",
+            (rel, mtime, title, summary, folder),
+        )
+        touched += 1
+    for rel in existing:
+        if rel not in seen:
+            db.execute("DELETE FROM pages WHERE path = ?", (rel,))
+            db.execute("DELETE FROM meta WHERE path = ?", (rel,))
+            touched += 1
+    if touched:
+        db.commit()
+    return touched
+
+
+def _sanitize_fts_query(query):
+    """Turn free text into a safe FTS5 MATCH expression.
+
+    Each whitespace token becomes a quoted prefix term (`"tok"*`), so hyphens,
+    quotes, and other FTS operators in user input are treated as literals, never
+    as syntax. Tokens are ANDed (FTS5 default). Returns "" when nothing usable
+    remains — the caller then takes the LIKE fallback.
+    """
+    tokens = query.split()
+    parts = []
+    for tok in tokens:
+        tok = tok.strip().replace('"', '""')
+        if tok:
+            parts.append(f'"{tok}"*')
+    return " ".join(parts)
+
+
+def _first_match_line(wiki, rel, query):
+    """Best-effort 1-indexed line of the first body line containing any query
+    token (case-insensitive), for a clickable path:line. Falls back to 1."""
+    terms = [t.lower() for t in re.findall(r"\w+", query)]
+    if not terms:
+        return 1
+    try:
+        text = (wiki / rel).read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return 1
+    for i, line in enumerate(text.splitlines(), start=1):
+        low = line.lower()
+        if any(t in low for t in terms):
+            return i
+    return 1
+
+
+def _fts_search(wiki, query, limit=None):
+    """Ranked FTS5 search. Returns the same shape as `_search_wiki` plus
+    `title`, `summary`, and `score` keys. Reindexes incrementally first."""
+    import sqlite3
+    if limit is None:
+        limit = _SEARCH_MAX_RESULTS
+    db = _open_search_db(wiki)
+    try:
+        _reindex_search_db(db, wiki)
+        meta = {row[0]: {"summary": row[1], "title": row[2], "folder": row[3]}
+                for row in db.execute("SELECT path, summary, title, folder FROM meta")}
+        rows = []
+        sanitized = _sanitize_fts_query(query)
+        if sanitized:
+            try:
+                # bm25 column weights: path(0)=0, title(1)=5x, body(2)=1x.
+                rows = db.execute(
+                    "SELECT path, snippet(pages, 2, '[', ']', ' … ', 12), "
+                    "bm25(pages, 0.0, 5.0, 1.0) "
+                    "FROM pages WHERE pages MATCH ? ORDER BY 3 LIMIT ?",
+                    (sanitized, limit),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+        if not rows:
+            # LIKE fallback: FTS miss, or a query with no tokenizable terms
+            # (punctuation-only, sub-token CJK). Unranked but never empty-by-bug.
+            like = f"%{query}%"
+            rows = [
+                (r[0], (r[1] or "").strip()[:160], 0.0)
+                for r in db.execute(
+                    "SELECT path, body FROM pages "
+                    "WHERE body LIKE ? OR title LIKE ? LIMIT ?",
+                    (like, like, limit),
+                ).fetchall()
+            ]
+        results = []
+        for path, snippet, rank in rows:
+            m = meta.get(path, {})
+            results.append({
+                "path": path,
+                "line": _first_match_line(wiki, path, query),
+                "snippet": (snippet or "").strip()[:300],
+                "title": m.get("title", ""),
+                "summary": m.get("summary", ""),
+                # bm25 is negative (more negative = better); flip for an
+                # intuitive "higher = better" score in the API/UI. `or 0.0`
+                # normalizes a signed-zero from the LIKE-fallback path.
+                "score": round(-float(rank), 4) or 0.0,
+            })
+        return results
+    finally:
+        db.close()
+
+
+def wiki_search(wiki, query, limit=None):
+    """Search dispatcher: ranked FTS5 when available, else ripgrep grep.
+
+    The grep path returns {path, line, snippet}; the FTS path adds {title,
+    summary, score}. Consumers must treat the extra keys as optional.
+    """
+    if _fts5_available():
+        try:
+            return _fts_search(wiki, query, limit=limit)
+        except Exception:
+            pass  # any FTS failure → fall through to grep, never hard-fail search
+    return _search_wiki(wiki, query)
+
+
 def _make_handler(wiki):
     """Return a BaseHTTPRequestHandler class closed over wiki path."""
     import http.server
@@ -1491,7 +1798,7 @@ def _make_handler(wiki):
                     self.send_json({"error": "query too long"}, status=400)
                     return
                 try:
-                    results = _search_wiki(wiki, q)
+                    results = wiki_search(wiki, q)
                     self.send_json({"results": results})
                 except Exception as exc:
                     self.send_json({"error": str(exc)}, status=500)
@@ -1742,9 +2049,9 @@ def cmd_serve(args):
 
 # ── comments helpers ──────────────────────────────────────────────────────────
 
-def _resolve_wiki_for_comments(args):
-    """Resolve the wiki directory for comments commands."""
-    if args.wiki:
+def _resolve_wiki(args):
+    """Resolve the wiki directory from --wiki or the enclosing git repo."""
+    if getattr(args, "wiki", None):
         wiki = Path(args.wiki).resolve()
     else:
         try:
@@ -1755,6 +2062,36 @@ def _resolve_wiki_for_comments(args):
     if not wiki.exists():
         sys.exit(f"wiki directory does not exist: {wiki}")
     return wiki
+
+
+def _resolve_wiki_for_comments(args):
+    """Resolve the wiki directory for comments commands."""
+    return _resolve_wiki(args)
+
+
+def cmd_search(args):
+    """Ranked full-text search over wiki pages (FTS5/BM25, grep fallback)."""
+    wiki = _resolve_wiki(args)
+    if not args.query.strip():
+        print("no matches.")
+        return 0
+    results = wiki_search(wiki, args.query, limit=args.limit)
+    if args.json:
+        print(json.dumps({"results": results}, ensure_ascii=False, indent=2))
+        return 0
+    if not results:
+        print("no matches.")
+        return 0
+    for r in results:
+        score = f"  ({r['score']})" if "score" in r else ""
+        print(f"{r['path']}:{r.get('line', 1)}{score}")
+        summary = r.get("summary")
+        if summary:
+            print(f"  ⟢ {summary[:160]}")
+        if r.get("snippet"):
+            print(f"  {r['snippet'][:200]}")
+        print()
+    return 0
 
 
 def _load_comments(comments_file):
@@ -2364,6 +2701,12 @@ def main():
     vp.add_argument("--note", default=None, help="optional note appended to the Timeline entry")
     vp.add_argument("--wiki", default=None, help="path to wiki dir (default: <repo>/repo-wiki)")
 
+    sep = sub.add_parser("search", help="ranked full-text search over pages (FTS5/BM25, grep fallback)")
+    sep.add_argument("query", help="search terms")
+    sep.add_argument("-n", "--limit", type=int, default=10, help="max results (default 10)")
+    sep.add_argument("--json", action="store_true", help="machine-readable JSON output")
+    sep.add_argument("--wiki", default=None, help="path to wiki dir (default: <repo>/repo-wiki)")
+
     svp = sub.add_parser("serve", help="boot local web server with /api/tree + web UI")
     svp.add_argument("--port", type=int, default=8347, help="port to listen on (default: 8347)")
     svp.add_argument("--wiki", default=None, help="path to wiki dir (default: <repo>/repo-wiki)")
@@ -2403,6 +2746,7 @@ def main():
         "post-commit": cmd_post_commit,
         "reconcile": cmd_reconcile,
         "verify": cmd_verify,
+        "search": cmd_search,
         "serve": cmd_serve,
         "comments": cmd_comments,
     }

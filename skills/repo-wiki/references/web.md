@@ -26,7 +26,7 @@ browser. No network access, no install, no build step.
 | Sidebar tree | Folders + pages; stale/fresh/unverified pill per page |
 | Page render | Frontmatter table, Compiled Truth + Timeline rendered via vendored marked |
 | In-page TOC | Right-rail sticky; hides at narrow widths (< 900px) |
-| Search | ripgrep-backed; falls back to Python grep if rg absent |
+| Search | ranked FTS5/BM25 (per-wiki index cache); falls back to ripgrep/grep if FTS5 absent |
 | Staleness pills | fresh (green) / stale (amber) / unverified (grey) |
 | Covers chips | `covers:` globs from frontmatter, shown below page title |
 | Backlinks | Pages that link to the current page |
@@ -81,8 +81,12 @@ Error responses use `{"error": "<message>"}` with appropriate HTTP status codes
 
 ### `GET /api/search?q=<query>`
 
-Full-text search across the wiki. Uses ripgrep (`rg`) if available, otherwise falls
-back to a Python `re.search` walk. Query is capped at 200 characters.
+Ranked full-text search across the wiki. Uses **SQLite FTS5 / BM25** (porter
+stemmer, title-boosted) via a **per-wiki** index cache at `.ingest/search.db`
+(scoped to this repo's pages; gitignored, rebuilt locally by file mtime on each
+request, never committed). On interpreters whose
+`sqlite3` lacks FTS5 it falls back to a ripgrep (`rg`) / Python-grep content walk.
+Query is capped at 200 characters.
 
 ```json
 {
@@ -90,13 +94,18 @@ back to a Python `re.search` walk. Query is capped at 200 characters.
     {
       "path": "constraints/auth.md",
       "line": 12,
-      "snippet": "...matched text..."
+      "snippet": "...matched [text]...",
+      "title": "Auth invariants",
+      "summary": "Tokens are validated at the edge, never trusted from the client.",
+      "score": 2.41
     }
   ]
 }
 ```
 
-Empty query returns `{"results": []}`. Query-too-long returns 400.
+`title`, `summary` (the page's Compiled-Truth line), and `score` (higher = better)
+are present only on the FTS path; the grep fallback returns just `path`, `line`,
+and `snippet`. Empty query returns `{"results": []}`. Query-too-long returns 400.
 
 ### `GET /api/status`
 
@@ -119,8 +128,10 @@ unverified.
 
 ### `GET /api/backlinks?path=<rel>`
 
-Returns pages that reference `path`. Uses the same search backend as `/api/search`
-(ripgrep or Python grep). The page itself is excluded from results.
+Returns pages that reference `path`. Backlinks match a page's *filename* as a
+literal, so this endpoint stays on the ripgrep/Python-grep path (`_search_wiki`)
+rather than the FTS index — link-resolution wants exact substring matching, not
+stemmed relevance ranking. The page itself is excluded from results.
 
 ```json
 {

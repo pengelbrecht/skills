@@ -576,6 +576,17 @@ button.sidebar-home-btn:focus-visible {
   font-weight: 400;
 }
 
+.search-gist {
+  font-size: 0.78rem;
+  color: var(--fg);
+  margin-top: var(--sp-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 .search-snippet {
   font-size: 0.75rem;
   color: var(--muted);

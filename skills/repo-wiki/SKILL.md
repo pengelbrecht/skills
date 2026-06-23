@@ -221,6 +221,26 @@ agent doesn't re-derive it — only when the knowledge is durable and non-obviou
 why the shim and root `INDEX.md` carry a "missing knowledge?" instruction: the wiki is a
 write-back cache that grows from use, not just from chats.
 
+## Find a page — `kb search`
+
+Ranked full-text search over page bodies, for when `ls` + `covers:` + descriptive
+filenames aren't enough (larger wikis, fuzzy recall):
+
+```bash
+python3 scripts/kb.py search "staleness covers"      # ranked hits + gist + snippet
+python3 scripts/kb.py search "rotating tokens" -n 5  # cap results (default 10)
+python3 scripts/kb.py search "edge auth" --json      # machine-readable
+```
+
+It uses **SQLite FTS5 / BM25** (porter stemmer, title-boosted), modeled on the
+`recall` skill. The index is **per-wiki** — one `.ingest/search.db` scoped to this
+repo's pages (gitignored, rebuilt locally by file mtime on every search, never
+committed) — no embeddings, no models, stdlib `sqlite3` only. Unlike `recall`'s
+machine-wide chat index, results never span repos. Each hit carries the page's **Compiled-Truth
+line** as context, so a match comes with the page's gist, not just a snippet. On
+interpreters whose `sqlite3` lacks FTS5 it transparently falls back to ripgrep.
+This same ranked search backs the web viewer's `/api/search`.
+
 ## Local web viewer — `kb serve`
 
 Browse the wiki in a browser without any external deps:
@@ -232,8 +252,9 @@ python3 scripts/kb.py serve --wiki path/to/repo-wiki   # explicit wiki dir
 ```
 
 Opens at `http://127.0.0.1:<port>/`. What you get: a sidebar tree, page render with
-frontmatter table + Compiled Truth + Timeline, in-page TOC, ripgrep search,
-staleness pills (fresh / stale / unverified), covers chips, and backlinks.
+frontmatter table + Compiled Truth + Timeline, in-page TOC, ranked FTS5 search
+(see `kb search` above), staleness pills (fresh / stale / unverified), covers
+chips, and backlinks.
 
 Design stance: **stdlib-only server, vendored offline assets, localhost-only,
 read-only.** Editing pages via the browser is a deferred follow-up (see

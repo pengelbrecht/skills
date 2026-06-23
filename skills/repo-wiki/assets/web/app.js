@@ -803,12 +803,16 @@
     var html = '<ul class="search-list">';
     results.forEach(function (r) {
       var label = r.path.replace(/\.md$/, "");
+      var gist = r.summary
+        ? '<p class="search-gist">' + escHtml(r.summary) + '</p>'
+        : '';
       html +=
         '<li class="search-item">' +
         '<a href="#" class="search-path" data-path="' + escHtml(r.path) + '">' +
         escHtml(label) +
         '<span class="search-line">:' + r.line + '</span>' +
         '</a>' +
+        gist +
         '<p class="search-snippet">' + escHtml(r.snippet) + '</p>' +
         '</li>';
     });
