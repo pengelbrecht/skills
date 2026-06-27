@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "last30days": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/last30days/SKILL.md",
+      "computedHash": "7c58f2f78a74b89080933071d4c06b58b6981c922871ec7cfe52e0f2f1aeeb39"
+    }
+  }
+}
