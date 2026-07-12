@@ -17,8 +17,8 @@ description: >
 # Agent Screencast
 
 Record narrated, captioned screen recordings of web applications. The pipeline
-uses agent-browser for browser automation, edge-tts for free voice synthesis,
-and ffmpeg for assembly. No API keys required.
+uses agent-browser for browser automation, a TTS provider for voice synthesis
+(edge-tts by default, Gemini 3.1 Flash TTS optional), and ffmpeg for assembly.
 
 ## Prerequisites
 
@@ -32,6 +32,46 @@ which ffmpeg        || echo "MISSING: brew install ffmpeg"
 
 No installation step is needed — `uv run` handles Python dependencies automatically
 via inline script metadata.
+
+If using the optional Gemini TTS provider (see *Voice provider* below), also
+ensure an API key is exported:
+
+```bash
+[ -n "$GEMINI_API_KEY" ] || [ -n "$GOOGLE_API_KEY" ] || \
+  echo "MISSING: export GEMINI_API_KEY=... (get one at https://aistudio.google.com/apikey)"
+```
+
+## Voice provider
+
+Two options, selectable per recording:
+
+| Provider | Cost | Quality | API key | Training data |
+|----------|------|---------|---------|---------------|
+| `edge` (default) | Free | Good, natural | No | No |
+| `gemini` | ~$0.03/min audio (paid) or free-tier | Expressive, prompt-directable | `GEMINI_API_KEY` | Yes on free tier, no on paid |
+
+Gemini 3.1 Flash TTS paid pricing: $20/1M audio output tokens at 25 tokens/second
+of audio → **~$0.0005/s** (≈ $0.03/min). A 90-second PR demo runs ~$0.045.
+Free tier is $0 but Google may use submitted text and audio to improve their
+models — don't use it for scripts that reference unreleased features, customer
+names, or sensitive text.
+
+Select the provider either in the script JSON:
+
+```json
+{ "tts_provider": "gemini", "voice": "Kore", ... }
+```
+
+or via CLI flag (overrides the script):
+
+```bash
+uv run <skill-dir>/agent-screencast.py script.json --tts-provider gemini -o out.mp4
+```
+
+When `gemini` is selected, the pipeline fails fast if no API key is in the
+environment and prints a cost preflight before synthesis. Subtitles for Gemini
+are split by sentence and distributed across each segment (Gemini doesn't
+expose word-level timestamps the way edge-tts does).
 
 ## How It Works
 
@@ -83,6 +123,7 @@ narration text and browser actions that will play during that narration.
 {
   "title": "Feature demo",
   "base_url": "http://localhost:4321",
+  "tts_provider": "edge",
   "voice": "en-US-GuyNeural",
   "segments": [
     {
@@ -182,7 +223,7 @@ with reactive frameworks (Vue, React):
 
 #### Voice options
 
-Run `uv run edge-tts --list-voices` for the full list. Good defaults:
+**edge** (default) — run `uv run edge-tts --list-voices` for the full list:
 
 | Voice | Style |
 |-------|-------|
@@ -192,6 +233,23 @@ Run `uv run edge-tts --list-voices` for the full list. Good defaults:
 | `en-GB-SoniaNeural` | British female |
 | `da-DK-ChristelNeural` | Danish female |
 | `da-DK-JeppeNeural` | Danish male |
+
+**gemini** — 30 prebuilt voices on `gemini-3.1-flash-tts-preview`:
+
+| Voice | Style |
+|-------|-------|
+| `Kore` | Clear, neutral (default for Gemini) |
+| `Puck` | Warm, upbeat |
+| `Charon` | Deep, authoritative |
+| `Zephyr` | Bright, energetic |
+| `Leda` | Friendly female |
+
+Others: `Fenrir`, `Aoede`, `Callirrhoe`, `Autonoe`, `Enceladus`, `Iapetus`,
+`Umbriel`, `Algieba`, `Despina`, `Erinome`, `Algenib`, `Rasalgethi`,
+`Laomedeia`, `Achernar`, `Alnilam`, `Schedar`, `Gacrux`, `Pulcherrima`,
+`Achird`, `Zubenelgenubi`, `Vindemiatrix`, `Sadachbia`, `Sadaltager`,
+`Sulafat`, `Orus`. Gemini also accepts natural-language direction inside the
+narration text itself ("Say cheerfully: ...") for emotion and pacing control.
 
 ### Step 3: Validate with dry-run
 
@@ -234,6 +292,7 @@ This executes all three phases automatically:
 | `-o FILE` | Output MP4 path (default: `demo.mp4`) |
 | `--session-dir DIR` | Working directory for intermediate files |
 | `--voice VOICE` | Override TTS voice for all segments |
+| `--tts-provider {edge,gemini}` | Override TTS provider (gemini needs `GEMINI_API_KEY`) |
 | `--headed` | Show browser window during recording |
 | `--auto-connect` | Connect to user's running Chrome via CDP |
 | `--cdp PORT` | Connect to Chrome on specific CDP port |

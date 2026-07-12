@@ -2,6 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "edge-tts>=7.2.8",
+#     "google-genai>=1.0",
 # ]
 # ///
 """Record narrated, captioned video demos of web applications.
@@ -15,13 +16,24 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import re
 import shlex
 import subprocess
 import sys
 import tempfile
 import time
+import wave
 from dataclasses import dataclass, field
 from pathlib import Path
+
+EDGE_DEFAULT_VOICE = "en-US-GuyNeural"
+GEMINI_DEFAULT_VOICE = "Kore"
+GEMINI_MODEL = "gemini-3.1-flash-tts-preview"
+# Gemini emits 25 audio tokens per second of speech at $20/M tokens on the paid tier.
+GEMINI_USD_PER_SECOND = 25 * 20 / 1_000_000
+# Rough English speaking rate for preflight cost estimation.
+ESTIMATE_CHARS_PER_SECOND = 15
 
 # ---------------------------------------------------------------------------
 # Models
@@ -67,7 +79,8 @@ class Segment:
 class Script:
     title: str
     base_url: str
-    voice: str = "en-US-GuyNeural"
+    voice: str = EDGE_DEFAULT_VOICE
+    tts_provider: str = "edge"
     segments: list[Segment] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -75,6 +88,7 @@ class Script:
             "title": self.title,
             "base_url": self.base_url,
             "voice": self.voice,
+            "tts_provider": self.tts_provider,
             "segments": [s.to_dict() for s in self.segments],
         }
 
@@ -101,16 +115,19 @@ class Script:
             )
             segments.append(seg)
 
+        provider = data.get("tts_provider", "edge")
+        default_voice = GEMINI_DEFAULT_VOICE if provider == "gemini" else EDGE_DEFAULT_VOICE
         return cls(
             title=data.get("title", "Untitled"),
             base_url=data.get("base_url", ""),
-            voice=data.get("voice", "en-US-GuyNeural"),
+            voice=data.get("voice", default_voice),
+            tts_provider=provider,
             segments=segments,
         )
 
 
 # ---------------------------------------------------------------------------
-# Narration (edge-tts)
+# Narration
 # ---------------------------------------------------------------------------
 
 
@@ -124,8 +141,8 @@ def get_audio_duration(path: str) -> float:
     return float(result.stdout.strip())
 
 
-async def generate_segment_audio(
-    segment_id: str, text: str, output_dir: Path, voice: str = "en-US-GuyNeural"
+async def generate_segment_audio_edge(
+    segment_id: str, text: str, output_dir: Path, voice: str
 ) -> tuple[str, str, int]:
     import edge_tts
 
@@ -149,14 +166,94 @@ async def generate_segment_audio(
     return str(audio_path), str(srt_path), round(duration * 1000)
 
 
+def _write_wav(path: Path, pcm_bytes: bytes, rate: int = 24000) -> None:
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(pcm_bytes)
+
+
+def _segment_srt_from_text(text: str, duration_ms: int) -> str:
+    # Gemini TTS does not return word-level timestamps, so spread sentences
+    # across the clip proportional to their length. Good enough for subtitles;
+    # the whole segment is played while on-screen anyway.
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+    if not sentences:
+        return ""
+
+    total_chars = sum(len(s) for s in sentences) or 1
+    cues: list[str] = []
+    cursor = 0
+    for i, sent in enumerate(sentences, start=1):
+        share = round(duration_ms * len(sent) / total_chars)
+        start = cursor
+        end = min(cursor + share, duration_ms) if i < len(sentences) else duration_ms
+        cursor = end
+        cues.append(
+            f"{i}\n{_format_srt_time(start)} --> {_format_srt_time(end)}\n{sent}\n"
+        )
+    return "\n".join(cues)
+
+
+def generate_segment_audio_gemini(
+    segment_id: str, text: str, output_dir: Path, voice: str
+) -> tuple[str, str, int]:
+    from google import genai
+    from google.genai import types
+
+    audio_path = output_dir / f"{segment_id}.wav"
+    srt_path = output_dir / f"{segment_id}.srt"
+
+    client = genai.Client()
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=text,
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)
+                )
+            ),
+        ),
+    )
+    pcm = response.candidates[0].content.parts[0].inline_data.data
+    _write_wav(audio_path, pcm)
+
+    duration_ms = round(get_audio_duration(str(audio_path)) * 1000)
+    srt_path.write_text(_segment_srt_from_text(text, duration_ms))
+    return str(audio_path), str(srt_path), duration_ms
+
+
+def _check_gemini_env() -> None:
+    if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
+        raise RuntimeError(
+            "Gemini TTS requires GEMINI_API_KEY or GOOGLE_API_KEY to be set. "
+            "Get a key at https://aistudio.google.com/apikey"
+        )
+
+
+def _estimate_gemini_cost(script: Script) -> tuple[float, float]:
+    total_chars = sum(len(s.narration) for s in script.segments)
+    est_seconds = total_chars / ESTIMATE_CHARS_PER_SECOND
+    est_usd = est_seconds * GEMINI_USD_PER_SECOND
+    return est_seconds, est_usd
+
+
 async def generate_all_narration(script: Script, output_dir: Path) -> Script:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for segment in script.segments:
         print(f"  Generating narration for segment: {segment.id}")
-        audio_path, srt_path, duration_ms = await generate_segment_audio(
-            segment.id, segment.narration, output_dir, script.voice
-        )
+        if script.tts_provider == "gemini":
+            audio_path, srt_path, duration_ms = generate_segment_audio_gemini(
+                segment.id, segment.narration, output_dir, script.voice
+            )
+        else:
+            audio_path, srt_path, duration_ms = await generate_segment_audio_edge(
+                segment.id, segment.narration, output_dir, script.voice
+            )
         segment.audio_path = audio_path
         segment.srt_path = srt_path
         segment.duration_ms = duration_ms
@@ -337,17 +434,21 @@ def record_demo(
     if auto_connect:
         base_args.append("--auto-connect")
 
+    # record start creates a fresh browser context; any navigation done *before*
+    # it lands on the wrong tab and subsequent clicks don't appear in the video.
+    # Pass the first segment's URL directly to `record start` so the fresh
+    # context loads it, and skip that open in the action loop below.
     first_segment = script.segments[0]
     first_open = next((a for a in first_segment.actions if a.cmd == "open"), None)
-    if first_open:
-        print(f"  Opening {first_open.arg}")
-        _run_ab(base_args, "open", first_open.arg)
-        _run_ab(base_args, "wait", "--load", "networkidle")
-
-    _run_ab(base_args, "wait", "1000")
 
     print(f"  Starting recording -> {output_path}")
-    _run_ab(base_args, "record", "start", output_path)
+    if first_open:
+        print(f"  Opening {first_open.arg}")
+        _run_ab(base_args, "record", "start", output_path, first_open.arg)
+        _run_ab(base_args, "wait", "--load", "domcontentloaded")
+        _run_ab(base_args, "wait", "500")
+    else:
+        _run_ab(base_args, "record", "start", output_path)
 
     rec_start = time.monotonic()
     manifest: list[TimingEntry] = []
@@ -587,6 +688,7 @@ def run_pipeline(
     output_path: str = "demo.mp4",
     *,
     voice_override: str | None = None,
+    provider_override: str | None = None,
     session_dir: str | None = None,
     skip_narration: bool = False,
     skip_recording: bool = False,
@@ -596,8 +698,23 @@ def run_pipeline(
     dry_run_only: bool = False,
 ) -> None:
     script = Script.load(script_path)
+    if provider_override:
+        script.tts_provider = provider_override
+        if not voice_override and script.voice in (EDGE_DEFAULT_VOICE, GEMINI_DEFAULT_VOICE):
+            script.voice = (
+                GEMINI_DEFAULT_VOICE if provider_override == "gemini" else EDGE_DEFAULT_VOICE
+            )
     if voice_override:
         script.voice = voice_override
+
+    if script.tts_provider == "gemini" and not skip_narration:
+        _check_gemini_env()
+        est_seconds, est_usd = _estimate_gemini_cost(script)
+        print(
+            f"Gemini TTS: ~{est_seconds:.0f}s of audio across {len(script.segments)} segments"
+        )
+        print(f"  Paid-tier estimate: ${est_usd:.3f}")
+        print("  Free tier: $0.00 (but Google uses your text for model training)")
 
     if session_dir:
         work_dir = Path(session_dir)
@@ -696,6 +813,13 @@ def main() -> int:
     parser.add_argument("script", help="Path to segment script JSON file")
     parser.add_argument("-o", "--output", default="demo.mp4", help="Output MP4 path")
     parser.add_argument("--voice", default=None, help="Override TTS voice")
+    parser.add_argument(
+        "--tts-provider",
+        default=None,
+        choices=["edge", "gemini"],
+        help="Override TTS provider (edge: free via edge-tts; gemini: Gemini 3.1 Flash TTS, "
+        "requires GEMINI_API_KEY)",
+    )
     parser.add_argument("--session-dir", default=None, help="Working directory for intermediate files")
     parser.add_argument("--skip-narration", action="store_true", help="Reuse existing audio")
     parser.add_argument("--skip-recording", action="store_true", help="Reuse existing video")
@@ -711,6 +835,7 @@ def main() -> int:
             script_path=args.script,
             output_path=args.output,
             voice_override=args.voice,
+            provider_override=args.tts_provider,
             session_dir=args.session_dir,
             skip_narration=args.skip_narration,
             skip_recording=args.skip_recording,
