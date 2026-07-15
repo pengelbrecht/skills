@@ -1,0 +1,345 @@
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["telethon>=1.36"]
+# ///
+"""tg — Telegram CLI that acts as YOUR user account (MTProto via Telethon).
+
+Not a bot: after a one-time `tg login`, every command runs with your own
+Telegram identity and sees everything your official apps see.
+
+Config dir (override with TG_CONFIG_DIR): ~/.config/tg/
+  config.json   {"api_id": 123456, "api_hash": "..."}   (from https://my.telegram.org)
+  tg.session    created by `tg login`
+
+Commands:
+  tg login                          one-time interactive login (phone + code [+ 2FA])
+  tg logout                         terminate the session and delete the session file
+  tg whoami                         show the logged-in account
+  tg dialogs [--limit N] [--json]   list chats, newest activity first
+  tg read <chat> [--limit N] [--json] [--before-id ID]
+                                    read recent messages from a chat
+  tg search <query> [--chat CHAT] [--limit N] [--json]
+                                    search messages (global, or within one chat)
+  tg send <chat> <text...>          send a message as you
+
+<chat> may be an @username, a t.me link, a numeric id, or a case-insensitive
+substring of a dialog title (unique match required).
+"""
+
+import argparse
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+
+CONFIG_DIR = Path(os.environ.get("TG_CONFIG_DIR", "~/.config/tg")).expanduser()
+CONFIG_FILE = CONFIG_DIR / "config.json"
+SESSION_FILE = CONFIG_DIR / "tg.session"
+
+
+def die(msg, code=1):
+    print(f"tg: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def load_config():
+    if not CONFIG_FILE.exists():
+        die(
+            f"missing {CONFIG_FILE}\n"
+            "Get api_id + api_hash from https://my.telegram.org (API development tools), then:\n"
+            f'  mkdir -p {CONFIG_DIR} && echo \'{{"api_id": 123456, "api_hash": "abc..."}}\' > {CONFIG_FILE}\n'
+            "and run `tg login`."
+        )
+    try:
+        cfg = json.loads(CONFIG_FILE.read_text())
+        return int(cfg["api_id"]), str(cfg["api_hash"])
+    except (json.JSONDecodeError, KeyError, ValueError) as e:
+        die(f"invalid {CONFIG_FILE}: {e}")
+
+
+def make_client():
+    from telethon import TelegramClient
+
+    api_id, api_hash = load_config()
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    return TelegramClient(str(SESSION_FILE.with_suffix("")), api_id, api_hash)
+
+
+async def connected(client):
+    await client.connect()
+    if not await client.is_user_authorized():
+        die("not logged in — run `tg login` first")
+    return client
+
+
+def display_name(entity):
+    from telethon.tl.types import User
+
+    if isinstance(entity, User):
+        name = " ".join(filter(None, [entity.first_name, entity.last_name]))
+        return name or entity.username or str(entity.id)
+    return getattr(entity, "title", None) or getattr(entity, "username", None) or str(entity.id)
+
+
+def entity_kind(entity):
+    from telethon.tl.types import Channel, Chat, User
+
+    if isinstance(entity, User):
+        return "bot" if entity.bot else "user"
+    if isinstance(entity, Chat):
+        return "group"
+    if isinstance(entity, Channel):
+        return "channel" if entity.broadcast else "group"
+    return "unknown"
+
+
+async def resolve_chat(client, ref):
+    """Resolve @username / t.me link / numeric id / title substring to an entity."""
+    if ref.lstrip("-").isdigit():
+        try:
+            return await client.get_entity(int(ref))
+        except Exception:
+            pass
+    if ref.startswith("@") or "t.me/" in ref or "+" in ref:
+        try:
+            return await client.get_entity(ref)
+        except Exception as e:
+            die(f"could not resolve {ref!r}: {e}")
+    # Fall back to matching dialog titles.
+    needle = ref.lower()
+    exact, partial = [], []
+    async for d in client.iter_dialogs():
+        name = display_name(d.entity)
+        if name.lower() == needle:
+            exact.append(d.entity)
+        elif needle in name.lower():
+            partial.append(d.entity)
+    matches = exact or partial
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        try:
+            return await client.get_entity(ref)
+        except Exception:
+            die(f"no chat matching {ref!r}")
+    names = ", ".join(sorted({display_name(m) for m in matches}))
+    die(f"{ref!r} is ambiguous ({len(matches)} chats): {names}")
+
+
+def msg_text(m):
+    if m.message:
+        return m.message
+    if m.media:
+        return f"[{type(m.media).__name__.replace('MessageMedia', '').lower() or 'media'}]"
+    if m.action:
+        return f"[{type(m.action).__name__.replace('MessageAction', '').lower()}]"
+    return "[empty]"
+
+
+def sender_name(m):
+    s = m.sender
+    return display_name(s) if s else (m.post_author or "channel")
+
+
+def msg_dict(m):
+    return {
+        "id": m.id,
+        "date": m.date.astimezone().isoformat(timespec="minutes"),
+        "sender": sender_name(m),
+        "out": m.out,
+        "reply_to": m.reply_to_msg_id,
+        "text": msg_text(m),
+    }
+
+
+def print_messages(messages, as_json):
+    messages = list(reversed(messages))  # oldest first for readability
+    if as_json:
+        print(json.dumps([msg_dict(m) for m in messages], ensure_ascii=False, indent=1))
+        return
+    for m in messages:
+        d = m.date.astimezone().strftime("%Y-%m-%d %H:%M")
+        text = msg_text(m).replace("\n", "\n    ")
+        reply = f" (reply to {m.reply_to_msg_id})" if m.reply_to_msg_id else ""
+        print(f"[{m.id}] {d} {sender_name(m)}{reply}: {text}")
+
+
+PENDING_FILE = CONFIG_DIR / "pending_login.json"
+
+
+async def _login_done(client):
+    me = await client.get_me()
+    PENDING_FILE.unlink(missing_ok=True)
+    print(f"Logged in as {display_name(me)} (@{me.username or '-'}, id {me.id})")
+    print(f"Session stored at {SESSION_FILE}")
+    await client.disconnect()
+
+
+async def cmd_login(args):
+    from telethon.errors import SessionPasswordNeededError
+
+    client = make_client()
+    await client.connect()
+    if await client.is_user_authorized():
+        await _login_done(client)
+        return
+
+    if args.phone:
+        sent = await client.send_code_request(args.phone)
+        PENDING_FILE.write_text(json.dumps({"phone": args.phone, "hash": sent.phone_code_hash}))
+        PENDING_FILE.chmod(0o600)
+        print(f"Code sent to {args.phone}. Finish with: tg login --code <CODE> [--password <2FA>]")
+        await client.disconnect()
+        return
+
+    if args.code:
+        if not PENDING_FILE.exists():
+            die("no pending login — start with `tg login --phone +45...`")
+        pending = json.loads(PENDING_FILE.read_text())
+        try:
+            await client.sign_in(pending["phone"], args.code, phone_code_hash=pending["hash"])
+        except SessionPasswordNeededError:
+            if not args.password:
+                die("2FA enabled — rerun with: tg login --code {} --password <your 2FA password>".format(args.code))
+            await client.sign_in(password=args.password)
+        await _login_done(client)
+        return
+
+    if not sys.stdin.isatty():
+        die(
+            "stdin is not interactive. Use the two-step flow:\n"
+            "  tg login --phone +4512345678   (sends the code)\n"
+            "  tg login --code 12345 [--password <2FA>]"
+        )
+    await client.start()  # prompts for phone, code, and 2FA password if set
+    await _login_done(client)
+
+
+async def cmd_logout(args):
+    client = await connected(make_client())
+    await client.log_out()
+    print("Logged out; session file removed.")
+
+
+async def cmd_whoami(args):
+    client = await connected(make_client())
+    me = await client.get_me()
+    print(f"{display_name(me)} (@{me.username or '-'}, id {me.id}, phone +{me.phone})")
+    await client.disconnect()
+
+
+async def cmd_dialogs(args):
+    client = await connected(make_client())
+    rows = []
+    async for d in client.iter_dialogs(limit=args.limit):
+        rows.append(
+            {
+                "id": d.entity.id,
+                "kind": entity_kind(d.entity),
+                "name": display_name(d.entity),
+                "username": getattr(d.entity, "username", None),
+                "unread": d.unread_count,
+                "last": d.date.astimezone().isoformat(timespec="minutes") if d.date else None,
+            }
+        )
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=1))
+    else:
+        for r in rows:
+            uname = f" @{r['username']}" if r["username"] else ""
+            unread = f" unread={r['unread']}" if r["unread"] else ""
+            print(f"{r['id']:>14}  {r['kind']:<7} {r['name']}{uname}{unread}  ({r['last']})")
+    await client.disconnect()
+
+
+async def cmd_read(args):
+    client = await connected(make_client())
+    entity = await resolve_chat(client, args.chat)
+    kwargs = {"limit": args.limit}
+    if args.before_id:
+        kwargs["max_id"] = args.before_id
+    messages = [m async for m in client.iter_messages(entity, **kwargs)]
+    print_messages(messages, args.json)
+    await client.disconnect()
+
+
+async def cmd_search(args):
+    client = await connected(make_client())
+    entity = await resolve_chat(client, args.chat) if args.chat else None
+    messages = [m async for m in client.iter_messages(entity, search=args.query, limit=args.limit)]
+    if not args.chat:
+        # Global results: prefix each line's sender with the chat it came from.
+        chats = {}
+        for m in messages:
+            if m.chat_id not in chats:
+                try:
+                    chats[m.chat_id] = display_name(await m.get_chat())
+                except Exception:
+                    chats[m.chat_id] = str(m.chat_id)
+        if args.json:
+            out = [{**msg_dict(m), "chat": chats[m.chat_id], "chat_id": m.chat_id} for m in reversed(messages)]
+            print(json.dumps(out, ensure_ascii=False, indent=1))
+        else:
+            for m in reversed(messages):
+                d = m.date.astimezone().strftime("%Y-%m-%d %H:%M")
+                text = msg_text(m).replace("\n", "\n    ")
+                print(f"[{m.id}] {d} {chats[m.chat_id]} / {sender_name(m)}: {text}")
+    else:
+        print_messages(messages, args.json)
+    await client.disconnect()
+
+
+async def cmd_send(args):
+    client = await connected(make_client())
+    entity = await resolve_chat(client, args.chat)
+    msg = await client.send_message(entity, " ".join(args.text))
+    print(f"Sent to {display_name(entity)} (message id {msg.id})")
+    await client.disconnect()
+
+
+def main():
+    p = argparse.ArgumentParser(
+        prog="tg", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    lg = sub.add_parser("login")
+    lg.add_argument("--phone", help="step 1: send a login code to this number (e.g. +4512345678)")
+    lg.add_argument("--code", help="step 2: the code Telegram sent you")
+    lg.add_argument("--password", help="2FA password, if your account has one")
+    lg.set_defaults(fn=cmd_login)
+    sub.add_parser("logout").set_defaults(fn=cmd_logout)
+    sub.add_parser("whoami").set_defaults(fn=cmd_whoami)
+
+    d = sub.add_parser("dialogs")
+    d.add_argument("--limit", type=int, default=30)
+    d.add_argument("--json", action="store_true")
+    d.set_defaults(fn=cmd_dialogs)
+
+    r = sub.add_parser("read")
+    r.add_argument("chat")
+    r.add_argument("--limit", type=int, default=20)
+    r.add_argument("--before-id", type=int, help="page backwards: only messages older than this id")
+    r.add_argument("--json", action="store_true")
+    r.set_defaults(fn=cmd_read)
+
+    s = sub.add_parser("search")
+    s.add_argument("query")
+    s.add_argument("--chat", help="restrict search to one chat")
+    s.add_argument("--limit", type=int, default=20)
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_search)
+
+    snd = sub.add_parser("send")
+    snd.add_argument("chat")
+    snd.add_argument("text", nargs="+")
+    snd.set_defaults(fn=cmd_send)
+
+    args = p.parse_args()
+    asyncio.run(args.fn(args))
+
+
+if __name__ == "__main__":
+    main()

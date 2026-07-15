@@ -12,6 +12,7 @@ A collection of [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sk
 | [gws-slides](skills/gws-slides) | Create polished, professional Google Slides presentations using the gws CLI |
 | [missions](skills/missions) | Break large engineering tasks into planned, validated missions executed by specialized agents |
 | [repo-wiki](skills/repo-wiki) | Build and maintain a living, agent-first knowledge base for a git repo — staleness detected by git, tacit knowledge captured from chats |
+| [telegram-cli](skills/telegram-cli) | Read, search, and send Telegram messages as your own account (MTProto userbot CLI) — with verbatim send-approval built in |
 
 ## Installation
 
