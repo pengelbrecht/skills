@@ -21,10 +21,14 @@ Commands:
                                     read recent messages from a chat
   tg search <query> [--chat CHAT] [--limit N] [--json]
                                     search messages (global, or within one chat)
-  tg send <chat> <text...>          send a message as you
+  tg send <chat> <text...> [--topic T]
+                                    send a message as you (optionally into a forum topic)
+  tg topics <chat>                  list forum topics of a group
 
 <chat> may be an @username, a t.me link, a numeric id, or a case-insensitive
 substring of a dialog title (unique match required).
+<T> (forum topic) may be a numeric topic id or a case-insensitive substring of
+a topic title (unique match required); also accepted by `tg read --topic`.
 """
 
 import argparse
@@ -126,6 +130,35 @@ async def resolve_chat(client, ref):
             die(f"no chat matching {ref!r}")
     names = ", ".join(sorted({display_name(m) for m in matches}))
     die(f"{ref!r} is ambiguous ({len(matches)} chats): {names}")
+
+
+async def fetch_topics(client, entity):
+    from telethon.tl.functions.messages import GetForumTopicsRequest
+
+    try:
+        res = await client(
+            GetForumTopicsRequest(peer=entity, offset_date=None, offset_id=0, offset_topic=0, limit=100)
+        )
+    except Exception as e:
+        die(f"could not list topics for {display_name(entity)!r} (not a forum group?): {e}")
+    return res.topics
+
+
+async def resolve_topic(client, entity, ref):
+    """Resolve a numeric topic id or title substring to a forum topic id."""
+    if str(ref).isdigit():
+        return int(ref)
+    topics = await fetch_topics(client, entity)
+    needle = str(ref).lower()
+    exact = [t for t in topics if t.title.lower() == needle]
+    partial = [t for t in topics if needle in t.title.lower()]
+    matches = exact or partial
+    if len(matches) == 1:
+        return matches[0].id
+    if not matches:
+        die(f"no topic matching {ref!r} in {display_name(entity)!r}")
+    names = ", ".join(t.title for t in matches)
+    die(f"topic {ref!r} is ambiguous ({len(matches)}): {names}")
 
 
 def msg_text(m):
@@ -260,6 +293,8 @@ async def cmd_read(args):
     kwargs = {"limit": args.limit}
     if args.before_id:
         kwargs["max_id"] = args.before_id
+    if args.topic:
+        kwargs["reply_to"] = await resolve_topic(client, entity, args.topic)
     messages = [m async for m in client.iter_messages(entity, **kwargs)]
     print_messages(messages, args.json)
     await client.disconnect()
@@ -294,8 +329,31 @@ async def cmd_search(args):
 async def cmd_send(args):
     client = await connected(make_client())
     entity = await resolve_chat(client, args.chat)
-    msg = await client.send_message(entity, " ".join(args.text))
-    print(f"Sent to {display_name(entity)} (message id {msg.id})")
+    kwargs = {}
+    if args.topic:
+        kwargs["reply_to"] = await resolve_topic(client, entity, args.topic)
+    msg = await client.send_message(entity, " ".join(args.text), **kwargs)
+    where = display_name(entity) + (f" (topic {kwargs['reply_to']})" if args.topic else "")
+    print(f"Sent to {where} (message id {msg.id})")
+    await client.disconnect()
+
+
+async def cmd_topics(args):
+    client = await connected(make_client())
+    entity = await resolve_chat(client, args.chat)
+    topics = await fetch_topics(client, entity)
+    if args.json:
+        print(
+            json.dumps(
+                [{"id": t.id, "title": t.title, "unread": t.unread_count} for t in topics],
+                ensure_ascii=False,
+                indent=1,
+            )
+        )
+    else:
+        for t in topics:
+            unread = f" unread={t.unread_count}" if t.unread_count else ""
+            print(f"{t.id:>6}  {t.title}{unread}")
     await client.disconnect()
 
 
@@ -322,6 +380,7 @@ def main():
     r.add_argument("chat")
     r.add_argument("--limit", type=int, default=20)
     r.add_argument("--before-id", type=int, help="page backwards: only messages older than this id")
+    r.add_argument("--topic", help="forum topic (numeric id or title substring)")
     r.add_argument("--json", action="store_true")
     r.set_defaults(fn=cmd_read)
 
@@ -335,7 +394,13 @@ def main():
     snd = sub.add_parser("send")
     snd.add_argument("chat")
     snd.add_argument("text", nargs="+")
+    snd.add_argument("--topic", help="forum topic (numeric id or title substring)")
     snd.set_defaults(fn=cmd_send)
+
+    tp = sub.add_parser("topics")
+    tp.add_argument("chat")
+    tp.add_argument("--json", action="store_true")
+    tp.set_defaults(fn=cmd_topics)
 
     args = p.parse_args()
     asyncio.run(args.fn(args))
