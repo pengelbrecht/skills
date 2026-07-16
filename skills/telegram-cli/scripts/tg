@@ -11,6 +11,7 @@ Telegram identity and sees everything your official apps see.
 Config dir (override with TG_CONFIG_DIR): ~/.config/tg/
   config.json   {"api_id": 123456, "api_hash": "..."}   (from https://my.telegram.org)
   tg.session    created by `tg login`
+  cursor.json   per-chat/topic read cursors (managed by --advance-cursor / `tg cursor`)
 
 Commands:
   tg login                          one-time interactive login (phone + code [+ 2FA])
@@ -18,12 +19,18 @@ Commands:
   tg whoami                         show the logged-in account
   tg dialogs [--limit N] [--json]   list chats, newest activity first
   tg read <chat> [--limit N] [--json] [--before-id ID]
-                                    read recent messages from a chat
+          [--since-id ID | --since-cursor] [--advance-cursor]
+                                    read recent messages from a chat; --since-* fetches
+                                    only messages newer than an id / the stored cursor
+                                    (oldest unseen first), --advance-cursor stores the
+                                    highest id printed as the new cursor
   tg search <query> [--chat CHAT] [--limit N] [--json]
                                     search messages (global, or within one chat)
   tg send <chat> <text...> [--topic T]
                                     send a message as you (optionally into a forum topic)
   tg topics <chat>                  list forum topics of a group
+  tg cursor [<chat>] [--topic T] [--set ID | --clear | --list]
+                                    show, set, clear, or list stored read cursors
 
 <chat> may be an @username, a t.me link, a numeric id, or a case-insensitive
 substring of a dialog title (unique match required).
@@ -41,6 +48,7 @@ from pathlib import Path
 CONFIG_DIR = Path(os.environ.get("TG_CONFIG_DIR", "~/.config/tg")).expanduser()
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SESSION_FILE = CONFIG_DIR / "tg.session"
+CURSOR_FILE = CONFIG_DIR / "cursor.json"
 
 
 def die(msg, code=1):
@@ -159,6 +167,45 @@ async def resolve_topic(client, entity, ref):
         die(f"no topic matching {ref!r} in {display_name(entity)!r}")
     names = ", ".join(t.title for t in matches)
     die(f"topic {ref!r} is ambiguous ({len(matches)}): {names}")
+
+
+def cursor_key(chat_id, topic_id=None):
+    return f"{chat_id}/{topic_id}" if topic_id else str(chat_id)
+
+
+def load_cursors():
+    if not CURSOR_FILE.exists():
+        return {}
+    try:
+        return json.loads(CURSOR_FILE.read_text())
+    except json.JSONDecodeError as e:
+        die(f"invalid {CURSOR_FILE}: {e}")
+
+
+def save_cursors(cursors):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = CURSOR_FILE.with_name(CURSOR_FILE.name + ".tmp")
+    tmp.write_text(json.dumps(cursors, ensure_ascii=False, indent=1))
+    os.replace(tmp, CURSOR_FILE)
+
+
+def set_cursor(key, last_id, chat_name, monotonic=True):
+    """Store a read cursor. With monotonic=True (implicit advance), re-read the
+    file at write time and never move backwards, so concurrent agents that both
+    advance can only lose to a HIGHER cursor, never regress each other."""
+    from datetime import datetime
+
+    cursors = load_cursors()
+    entry = cursors.get(key)
+    if monotonic and entry and entry.get("last_id", 0) >= last_id:
+        return entry["last_id"]
+    cursors[key] = {
+        "last_id": last_id,
+        "chat": chat_name,
+        "updated": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    save_cursors(cursors)
+    return last_id
 
 
 def msg_text(m):
@@ -288,15 +335,33 @@ async def cmd_dialogs(args):
 
 
 async def cmd_read(args):
+    if args.since_id and args.since_cursor:
+        die("--since-id and --since-cursor are mutually exclusive")
     client = await connected(make_client())
     entity = await resolve_chat(client, args.chat)
+    topic_id = await resolve_topic(client, entity, args.topic) if args.topic else None
+    key = cursor_key(entity.id, topic_id)
     kwargs = {"limit": args.limit}
     if args.before_id:
         kwargs["max_id"] = args.before_id
-    if args.topic:
-        kwargs["reply_to"] = await resolve_topic(client, entity, args.topic)
+    if topic_id:
+        kwargs["reply_to"] = topic_id
+    since = args.since_id
+    if args.since_cursor:
+        entry = load_cursors().get(key)
+        since = entry["last_id"] if entry else 0
+    if since is not None:
+        kwargs["min_id"] = since
+        # Oldest-first so --limit takes the OLDEST unseen messages (queue order);
+        # advancing the cursor then never skips over unfetched ones.
+        kwargs["reverse"] = True
     messages = [m async for m in client.iter_messages(entity, **kwargs)]
+    if kwargs.get("reverse"):
+        messages = list(reversed(messages))  # print_messages expects newest-first
     print_messages(messages, args.json)
+    if args.advance_cursor and messages:
+        stored = set_cursor(key, max(m.id for m in messages), display_name(entity))
+        print(f"cursor[{key}] = {stored}", file=sys.stderr)
     await client.disconnect()
 
 
@@ -357,6 +422,42 @@ async def cmd_topics(args):
     await client.disconnect()
 
 
+async def cmd_cursor(args):
+    if args.list:
+        cursors = load_cursors()
+        if args.json:
+            print(json.dumps(cursors, ensure_ascii=False, indent=1))
+        else:
+            for key, e in sorted(cursors.items()):
+                print(f"{key:>20}  last_id={e['last_id']}  {e.get('chat', '?')}  ({e.get('updated', '?')})")
+        return
+    if not args.chat:
+        die("give a <chat> (with optional --topic), or --list")
+    client = await connected(make_client())
+    entity = await resolve_chat(client, args.chat)
+    topic_id = await resolve_topic(client, entity, args.topic) if args.topic else None
+    key = cursor_key(entity.id, topic_id)
+    if args.clear:
+        cursors = load_cursors()
+        if cursors.pop(key, None) is not None:
+            save_cursors(cursors)
+            print(f"cursor[{key}] cleared")
+        else:
+            print(f"cursor[{key}] was not set")
+    elif args.set is not None:
+        stored = set_cursor(key, args.set, display_name(entity), monotonic=False)
+        print(f"cursor[{key}] = {stored}")
+    else:
+        entry = load_cursors().get(key)
+        if args.json:
+            print(json.dumps({key: entry}, ensure_ascii=False, indent=1))
+        elif entry:
+            print(f"cursor[{key}] = {entry['last_id']}  ({entry.get('updated', '?')})")
+        else:
+            print(f"cursor[{key}] is not set")
+    await client.disconnect()
+
+
 def main():
     p = argparse.ArgumentParser(
         prog="tg", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -380,6 +481,9 @@ def main():
     r.add_argument("chat")
     r.add_argument("--limit", type=int, default=20)
     r.add_argument("--before-id", type=int, help="page backwards: only messages older than this id")
+    r.add_argument("--since-id", type=int, help="only messages newer than this id, oldest first")
+    r.add_argument("--since-cursor", action="store_true", help="only messages newer than the stored cursor")
+    r.add_argument("--advance-cursor", action="store_true", help="store the highest id printed as the new cursor")
     r.add_argument("--topic", help="forum topic (numeric id or title substring)")
     r.add_argument("--json", action="store_true")
     r.set_defaults(fn=cmd_read)
@@ -401,6 +505,15 @@ def main():
     tp.add_argument("chat")
     tp.add_argument("--json", action="store_true")
     tp.set_defaults(fn=cmd_topics)
+
+    cu = sub.add_parser("cursor")
+    cu.add_argument("chat", nargs="?")
+    cu.add_argument("--topic", help="forum topic (numeric id or title substring)")
+    cu.add_argument("--set", type=int, help="set the cursor to this message id (may move backwards)")
+    cu.add_argument("--clear", action="store_true", help="remove the stored cursor")
+    cu.add_argument("--list", action="store_true", help="list all stored cursors")
+    cu.add_argument("--json", action="store_true")
+    cu.set_defaults(fn=cmd_cursor)
 
     args = p.parse_args()
     asyncio.run(args.fn(args))

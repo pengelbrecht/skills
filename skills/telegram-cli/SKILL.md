@@ -14,11 +14,16 @@ description: Use when any task involves the user's personal Telegram — reading
 ```
 tg dialogs [--limit N] [--json]        # chats, newest first, with unread counts
 tg read <chat> [--limit N] [--json]    # recent messages, oldest-first; --before-id <ID> pages back
+   [--since-id N | --since-cursor]     # only messages newer than an id / the stored cursor, oldest unseen first
+   [--advance-cursor]                  # store the highest id printed as the new cursor
 tg search <query> [--chat C] [--json]  # global or per-chat message search
 tg send <chat> <text...> [--topic T]   # send as the user — see rule below
 tg topics <chat> [--json]              # list forum topics of a group
+tg cursor [<chat>] [--topic T] [--set N | --clear | --list]   # inspect/manage read cursors
 tg whoami / tg login / tg logout
 ```
+
+**Read cursors** track how far you've processed a chat (or one forum topic), stored per chat/topic in `~/.config/tg/cursor.json` — local, but shared by every agent using the same config dir. `--advance-cursor` never moves a cursor backwards (safe under concurrent agents); to rewind deliberately, use `tg cursor <chat> --set N`. With `--since-cursor` and no cursor set yet, reading starts from the beginning of the chat — initialize with `--set` first if you only want new traffic.
 
 `<chat>` = @username, t.me link, numeric id, or unique title substring (ambiguity is reported with candidates). Prefer `--json` when post-processing. `[id]` prefixes are real message ids. Config: `~/.config/tg/`; `TG_CONFIG_DIR` overrides for multi-account.
 
