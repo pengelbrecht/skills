@@ -393,23 +393,14 @@ async def cmd_search(args):
 
 
 async def cmd_send(args):
-    from telethon.tl.types import InputReplyToMessage
-
     client = await connected(make_client())
     entity = await resolve_chat(client, args.chat)
     kwargs = {}
     suffix = ""
-    if args.reply_to and args.topic:
-        # Reply to a specific message inside a forum topic: Telegram needs the
-        # topic as top_msg_id alongside the replied-to message id.
-        topic_id = await resolve_topic(client, entity, args.topic)
-        kwargs["reply_to"] = InputReplyToMessage(
-            reply_to_msg_id=args.reply_to, top_msg_id=topic_id
-        )
-        suffix = f" (topic {topic_id}, reply to {args.reply_to})"
-    elif args.reply_to:
-        # Bare reply: if the target lives in a forum topic, Telegram threads the
-        # message into that topic via the reply chain.
+    if args.reply_to:
+        # A reply lands in the forum topic of the message it replies to (the
+        # topic rides the reply chain), so --topic is redundant with --reply-to;
+        # it is still accepted and the target's topic wins if they disagree.
         kwargs["reply_to"] = args.reply_to
         suffix = f" (reply to {args.reply_to})"
     elif args.topic:
