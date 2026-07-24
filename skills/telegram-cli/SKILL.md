@@ -17,7 +17,9 @@ tg read <chat> [--limit N] [--json]    # recent messages, oldest-first; --before
    [--since-id N | --since-cursor]     # only messages newer than an id / the stored cursor, oldest unseen first
    [--advance-cursor]                  # store the highest id printed as the new cursor
 tg search <query> [--chat C] [--json]  # global or per-chat message search
-tg send <chat> <text...> [--topic T]   # send as the user — see rule below
+tg send <chat> <text...> [--topic T] [--reply-to ID]   # send as the user — see rule below
+                                       # --reply-to threads onto a message id (combine
+                                       # with --topic to reply inside a forum topic)
 tg topics <chat> [--json]              # list forum topics of a group
 tg cursor [<chat>] [--topic T] [--set N | --clear | --list]   # inspect/manage read cursors
 tg whoami / tg login / tg logout

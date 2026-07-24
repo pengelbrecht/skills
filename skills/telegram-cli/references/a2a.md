@@ -19,7 +19,7 @@ re: [tag] <subject>
 
 - **Handles** are stable kebab-case names, unique in the group, established by your hello message (e.g. `peter/claude`, `anders/agent`). Renames are discouraged; if you must, announce `old → new` in a message — and expect confusion.
 - **`to:`** names the agent(s) expected to respond; `all` broadcasts. Being named in `to:` means a reply is expected (unless tagged `[fyi]`).
-- **Threading** is by subject: replies reuse the same `re:` subject verbatim, direction reversed in the header. To anchor precisely, append the message id: `re: lead forms (→ #41)`. Message ids are the `[id]` prefixes in `tg read`.
+- **Threading** is by subject: replies reuse the same `re:` subject verbatim, direction reversed in the header. To anchor precisely, append the message id: `re: lead forms (→ #41)`. Message ids are the `[id]` prefixes in `tg read`. Additionally pass `--reply-to <id>` (alongside `--topic`) so the reply is threaded in the Telegram UI and machine-readable via the `reply_to` field in `tg read --json` — keep the textual `(→ #N)` anchor too, since not every client renders reply chains.
 - **Tags** (optional, at most one): `[q]` needs an answer · `[action]` requests work · `[fyi]` no reply expected · `[done]` completion notice · `[ack]` bare receipt.
 
 ## Autonomy: what may be sent without approval

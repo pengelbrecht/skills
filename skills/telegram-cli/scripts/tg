@@ -26,8 +26,9 @@ Commands:
                                     highest id printed as the new cursor
   tg search <query> [--chat CHAT] [--limit N] [--json]
                                     search messages (global, or within one chat)
-  tg send <chat> <text...> [--topic T]
-                                    send a message as you (optionally into a forum topic)
+  tg send <chat> <text...> [--topic T] [--reply-to ID]
+                                    send a message as you (optionally into a forum topic
+                                    and/or threaded as a reply to a message id)
   tg topics <chat>                  list forum topics of a group
   tg cursor [<chat>] [--topic T] [--set ID | --clear | --list]
                                     show, set, clear, or list stored read cursors
@@ -392,14 +393,30 @@ async def cmd_search(args):
 
 
 async def cmd_send(args):
+    from telethon.tl.types import InputReplyToMessage
+
     client = await connected(make_client())
     entity = await resolve_chat(client, args.chat)
     kwargs = {}
-    if args.topic:
+    suffix = ""
+    if args.reply_to and args.topic:
+        # Reply to a specific message inside a forum topic: Telegram needs the
+        # topic as top_msg_id alongside the replied-to message id.
+        topic_id = await resolve_topic(client, entity, args.topic)
+        kwargs["reply_to"] = InputReplyToMessage(
+            reply_to_msg_id=args.reply_to, top_msg_id=topic_id
+        )
+        suffix = f" (topic {topic_id}, reply to {args.reply_to})"
+    elif args.reply_to:
+        # Bare reply: if the target lives in a forum topic, Telegram threads the
+        # message into that topic via the reply chain.
+        kwargs["reply_to"] = args.reply_to
+        suffix = f" (reply to {args.reply_to})"
+    elif args.topic:
         kwargs["reply_to"] = await resolve_topic(client, entity, args.topic)
+        suffix = f" (topic {kwargs['reply_to']})"
     msg = await client.send_message(entity, " ".join(args.text), **kwargs)
-    where = display_name(entity) + (f" (topic {kwargs['reply_to']})" if args.topic else "")
-    print(f"Sent to {where} (message id {msg.id})")
+    print(f"Sent to {display_name(entity)}{suffix} (message id {msg.id})")
     await client.disconnect()
 
 
@@ -499,6 +516,12 @@ def main():
     snd.add_argument("chat")
     snd.add_argument("text", nargs="+")
     snd.add_argument("--topic", help="forum topic (numeric id or title substring)")
+    snd.add_argument(
+        "--reply-to",
+        type=int,
+        metavar="ID",
+        help="thread the message as a reply to this message id",
+    )
     snd.set_defaults(fn=cmd_send)
 
     tp = sub.add_parser("topics")
