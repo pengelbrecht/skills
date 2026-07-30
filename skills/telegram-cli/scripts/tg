@@ -30,6 +30,9 @@ Commands:
                                     send a message as you (optionally into a forum topic
                                     and/or threaded as a reply to a message id)
   tg topics <chat>                  list forum topics of a group
+  tg delete <chat> <id...>          delete YOUR OWN messages (out=true enforced per id;
+                                    anyone else's are refused, never deleted); revokes
+                                    for all participants
   tg cursor [<chat>] [--topic T] [--set ID | --clear | --list]
                                     show, set, clear, or list stored read cursors
 
@@ -411,6 +414,41 @@ async def cmd_send(args):
     await client.disconnect()
 
 
+async def cmd_delete(args):
+    """Delete own messages only — the out=true safety boundary.
+
+    Every id is fetched and checked BEFORE anything is deleted: a message that
+    is missing or was sent by anyone else refuses the WHOLE batch (all-or-
+    nothing), so a typo'd id can never take someone else's message with it.
+    Deletion revokes for all participants (the retraction use case: a missent
+    or factually wrong message another agent might act on).
+    """
+    client = await connected(make_client())
+    entity = await resolve_chat(client, args.chat)
+    msgs = await client.get_messages(entity, ids=args.ids)
+    refused = []
+    for mid, msg in zip(args.ids, msgs):
+        if msg is None:
+            refused.append((mid, "not found in this chat"))
+        elif not msg.out:
+            refused.append((mid, "not your message (out=false) — refusing"))
+    if refused:
+        for mid, reason in refused:
+            print(f"[{mid}] {reason}", file=sys.stderr)
+        print(
+            f"Nothing deleted ({len(refused)} of {len(args.ids)} refused; delete is all-or-nothing).",
+            file=sys.stderr,
+        )
+        await client.disconnect()
+        sys.exit(1)
+    await client.delete_messages(entity, args.ids, revoke=True)
+    print(
+        f"Deleted {len(args.ids)} own message(s) from {display_name(entity)}: "
+        + ", ".join(str(i) for i in args.ids)
+    )
+    await client.disconnect()
+
+
 async def cmd_topics(args):
     client = await connected(make_client())
     entity = await resolve_chat(client, args.chat)
@@ -519,6 +557,17 @@ def main():
     tp.add_argument("chat")
     tp.add_argument("--json", action="store_true")
     tp.set_defaults(fn=cmd_topics)
+
+    dl = sub.add_parser("delete")
+    dl.add_argument("chat")
+    dl.add_argument(
+        "ids",
+        nargs="+",
+        type=int,
+        metavar="ID",
+        help="message id(s) to delete — must ALL be your own (out=true)",
+    )
+    dl.set_defaults(fn=cmd_delete)
 
     cu = sub.add_parser("cursor")
     cu.add_argument("chat", nargs="?")

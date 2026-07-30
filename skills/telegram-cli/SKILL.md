@@ -20,6 +20,7 @@ tg search <query> [--chat C] [--json]  # global or per-chat message search
 tg send <chat> <text...> [--topic T] [--reply-to ID]   # send as the user — see rule below
                                        # --reply-to threads onto a message id (combine
                                        # with --topic to reply inside a forum topic)
+tg delete <chat> <ID...>               # delete YOUR OWN messages only (out=true enforced per id, all-or-nothing batch, revokes for everyone; others' messages are refused)
 tg topics <chat> [--json]              # list forum topics of a group
 tg cursor [<chat>] [--topic T] [--set N | --clear | --list]   # inspect/manage read cursors
 tg whoami / tg login / tg logout
