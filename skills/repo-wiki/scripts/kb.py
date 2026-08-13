@@ -1272,15 +1272,43 @@ def migrate_ingest_gitignore(root):
 # A $CLAUDE_PROJECT_DIR-relative path is used when kb.py lives under the repo so the
 # committed hook stays portable across clones; an absolute path is the fallback.
 
+def _checkout_root_of(path):
+    """Nearest ancestor of `path` that looks like a git checkout root, or None.
+
+    `.git` is a directory in a normal checkout and a file in a linked worktree, so
+    `.exists()` covers both.
+    """
+    for parent in path.parents:
+        if (parent / ".git").exists():
+            return parent
+    return None
+
+
 def _kb_path_expr(root, projdir="$CLAUDE_PROJECT_DIR"):
     """Path token to embed in a committed settings.json hook command — relative to
     `projdir` when kb.py is under the repo root, absolute otherwise."""
     kb_abs = Path(__file__).resolve()
+    root = Path(root).resolve()
     try:
-        rel = kb_abs.relative_to(Path(root).resolve())
+        rel = kb_abs.relative_to(root)
         return f"{projdir}/{rel.as_posix()}"
     except ValueError:
-        return str(kb_abs)
+        pass
+    # kb.py can be a DIFFERENT checkout of the same repo than `root`: linked worktrees
+    # share .git/hooks with the main checkout, so a commit made in a worktree runs the
+    # main checkout's kb.py with `root` set to the worktree. Falling through to the
+    # absolute branch there would bake the main checkout's path into the worktree's
+    # committed settings.json — breaking every other worktree and every fresh clone.
+    # If the same repo-relative path exists under `root`, the hook stays portable.
+    other = _checkout_root_of(kb_abs)
+    if other is not None:
+        try:
+            rel = kb_abs.relative_to(other)
+        except ValueError:
+            rel = None
+        if rel is not None and (root / rel).exists():
+            return f"{projdir}/{rel.as_posix()}"
+    return str(kb_abs)
 
 
 def _load_settings(root):
